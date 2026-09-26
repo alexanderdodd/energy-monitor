@@ -73,16 +73,22 @@ export interface ChartPoint {
  * Buckets with no numeric coverage come back as null so the chart can show a
  * gap rather than inventing a zero.
  */
-export function downsample(
+/**
+ * Walk a step series, handing each slice of constant value to `onSlice`.
+ *
+ * Home Assistant records a point only when a value changes, so each reading
+ * holds until the next one. Both the averaging and the integration below
+ * depend on identical clipping and bucket-boundary handling, so they share
+ * this walk rather than each keeping their own copy of the arithmetic.
+ */
+function forEachSlice(
   points: HistoryPoint[],
   start: number,
   end: number,
   bucketMs: number,
-): ChartPoint[] {
-  const bucketCount = Math.max(1, Math.ceil((end - start) / bucketMs));
-  const weighted = new Float64Array(bucketCount);
-  const weights = new Float64Array(bucketCount);
-
+  bucketCount: number,
+  onSlice: (bucket: number, value: number, durationMs: number) => void,
+): void {
   for (let i = 0; i < points.length; i += 1) {
     const point = points[i]!;
     const value = parseNumericState(point.s);
@@ -97,12 +103,39 @@ export function downsample(
       const index = Math.min(bucketCount - 1, Math.floor((cursor - start) / bucketMs));
       const boundary = start + (index + 1) * bucketMs;
       const sliceEnd = Math.min(segmentEnd, boundary);
-      const duration = sliceEnd - cursor;
-      weighted[index] = weighted[index]! + value * duration;
-      weights[index] = weights[index]! + duration;
+      onSlice(index, value, sliceEnd - cursor);
       cursor = sliceEnd;
     }
   }
+}
+
+function bucketCountFor(start: number, end: number, bucketMs: number): number {
+  return Math.max(1, Math.ceil((end - start) / bucketMs));
+}
+
+/**
+ * Reduce raw history to fixed-width buckets using a time-weighted mean.
+ *
+ * A plain arithmetic mean would over-weight bursts of rapid changes;
+ * weighting by duration gives the average the appliance actually drew.
+ *
+ * Buckets with no numeric coverage come back as null so the chart can show a
+ * gap rather than inventing a zero.
+ */
+export function downsample(
+  points: HistoryPoint[],
+  start: number,
+  end: number,
+  bucketMs: number,
+): ChartPoint[] {
+  const bucketCount = bucketCountFor(start, end, bucketMs);
+  const weighted = new Float64Array(bucketCount);
+  const weights = new Float64Array(bucketCount);
+
+  forEachSlice(points, start, end, bucketMs, bucketCount, (index, value, duration) => {
+    weighted[index] = weighted[index]! + value * duration;
+    weights[index] = weights[index]! + duration;
+  });
 
   const result: ChartPoint[] = new Array(bucketCount);
   for (let i = 0; i < bucketCount; i += 1) {
@@ -111,6 +144,53 @@ export function downsample(
       t: start + i * bucketMs,
       v: weight > 0 ? roundTo(weighted[i]! / weight, 2) : null,
     };
+  }
+  return result;
+}
+
+/** Watt-milliseconds to kilowatt-hours. */
+const WATT_MS_PER_KWH = 3_600_000 * 1_000;
+
+/**
+ * A running total of energy used, integrated from power history.
+ *
+ * This is what makes a "how is today building up" chart possible on a fresh
+ * install: it needs only recorder history for a power sensor, not the
+ * long-term statistics that take a full day to produce their first bucket.
+ *
+ * Several series are integrated together so a category or the whole
+ * household can be charted; integrating each and summing is equivalent to
+ * summing the power first.
+ *
+ * A stretch where nothing was recorded contributes nothing, so the line runs
+ * flat across it rather than jumping. Returns an empty series when no source
+ * reported anything at all, which the caller shows as "no data" rather than
+ * as a flat zero.
+ */
+export function cumulativeEnergy(
+  series: HistoryPoint[][],
+  start: number,
+  end: number,
+  bucketMs: number,
+): ChartPoint[] {
+  const bucketCount = bucketCountFor(start, end, bucketMs);
+  const wattMs = new Float64Array(bucketCount);
+  let sawAnything = false;
+
+  for (const points of series) {
+    forEachSlice(points, start, end, bucketMs, bucketCount, (index, value, duration) => {
+      wattMs[index] = wattMs[index]! + value * duration;
+      sawAnything = true;
+    });
+  }
+
+  if (!sawAnything) return [];
+
+  const result: ChartPoint[] = new Array(bucketCount);
+  let total = 0;
+  for (let i = 0; i < bucketCount; i += 1) {
+    total += wattMs[i]! / WATT_MS_PER_KWH;
+    result[i] = { t: start + i * bucketMs, v: roundTo(total, 4) };
   }
   return result;
 }

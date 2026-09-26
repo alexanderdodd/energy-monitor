@@ -382,6 +382,70 @@ describe("categories", () => {
   });
 });
 
+describe("cumulative day curves", () => {
+  it("integrates today's power history for the household", async () => {
+    await configureFridge(current);
+    const response = await current.app.inject({ url: "/api/summary/cumulative" });
+    expect(response.statusCode).toBe(200);
+
+    const body = response.json() as {
+      points: { t: number; v: number }[];
+      totalKwh: number;
+      bucketMs: number;
+    };
+    expect(body.bucketMs).toBe(300_000);
+    expect(body.points.length).toBeGreaterThan(0);
+    expect(body.totalKwh).toBeGreaterThan(0);
+
+    // A running total may never fall.
+    const values = body.points.map((point) => point.v);
+    for (let i = 1; i < values.length; i += 1) {
+      expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!);
+    }
+    expect(values.at(-1)).toBe(body.totalKwh);
+  });
+
+  it("serves the same shape per appliance and per category", async () => {
+    await configureFridge(current);
+    await current.app.inject({
+      method: "PUT",
+      url: "/api/categories",
+      payload: { categories: [{ name: "Washing", applianceIds: ["device:dev-fridge"] }] },
+    });
+
+    const appliance = await current.app.inject({
+      url: "/api/appliances/device:dev-fridge/cumulative",
+    });
+    const category = await current.app.inject({ url: "/api/categories/washing/cumulative" });
+
+    expect(appliance.statusCode).toBe(200);
+    expect(category.statusCode).toBe(200);
+    // One appliance in the category, so the two curves agree.
+    expect((category.json() as { totalKwh: number }).totalKwh).toBe(
+      (appliance.json() as { totalKwh: number }).totalKwh,
+    );
+  });
+
+  it("returns an empty curve, not an error, when nothing was recorded", async () => {
+    await configureFridge(current);
+    current.source.options.history = {};
+    const response = await current.app.inject({
+      url: "/api/appliances/device:dev-dryer/cumulative",
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ points: [], totalKwh: null });
+  });
+
+  it("404s for unknown appliances and categories", async () => {
+    expect((await current.app.inject({ url: "/api/appliances/nope/cumulative" })).statusCode).toBe(
+      404,
+    );
+    expect((await current.app.inject({ url: "/api/categories/nope/cumulative" })).statusCode).toBe(
+      404,
+    );
+  });
+});
+
 describe("ingress guard", () => {
   it("refuses requests that did not come through Home Assistant", async () => {
     const guarded = await harness(true);

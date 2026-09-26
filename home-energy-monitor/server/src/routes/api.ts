@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { log } from "../logger.ts";
 import { discoverAppliances } from "../ha/discovery.ts";
 import { isHistoryRange } from "../ha/history.ts";
@@ -140,6 +140,34 @@ export function registerApiRoutes(app: FastifyInstance, deps: ApiDependencies): 
       return reply.code(503).send({ error: "Could not reach Home Assistant" });
     }
   });
+
+  /**
+   * "How is today building up" curves. Separate from /history because they
+   * are always today-to-now and are integrated from power, so they work
+   * before long-term statistics have produced anything.
+   */
+  const cumulative = async (load: () => Promise<unknown | null>, reply: FastifyReply) => {
+    try {
+      const result = await load();
+      if (!result) return reply.code(404).send({ error: "Not found" });
+      return result;
+    } catch (error) {
+      log.warning(`Could not build the cumulative curve: ${(error as Error).message}`);
+      return reply.code(503).send({ error: "Could not load history from Home Assistant" });
+    }
+  };
+
+  app.get("/api/summary/cumulative", async (_request, reply) =>
+    cumulative(() => service.getHouseholdCumulative(), reply),
+  );
+
+  app.get<{ Params: { id: string } }>("/api/appliances/:id/cumulative", async (request, reply) =>
+    cumulative(() => service.getApplianceCumulative(request.params.id), reply),
+  );
+
+  app.get<{ Params: { id: string } }>("/api/categories/:id/cumulative", async (request, reply) =>
+    cumulative(() => service.getCategoryCumulative(request.params.id), reply),
+  );
 
   app.get("/api/summary", async (_request, reply) => {
     try {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   costOf,
+  cumulativeEnergy,
   daysInMonth,
   downsample,
   forecastFromDailyTotals,
@@ -182,5 +183,69 @@ describe("date helpers", () => {
     expect(start.getDate()).toBe(7);
     expect(start.getHours()).toBe(0);
     expect(start.getMinutes()).toBe(0);
+  });
+});
+
+describe("cumulativeEnergy", () => {
+  const hour = 3_600_000;
+  const bucket = 15 * 60_000;
+
+  it("integrates power into a running kWh total", () => {
+    // 1000 W held for a full hour is exactly 1 kWh.
+    const result = cumulativeEnergy([[{ t: 0, s: "1000" }]], 0, hour, bucket);
+    expect(result).toHaveLength(4);
+    expect(result.at(-1)!.v).toBeCloseTo(1, 6);
+    // It accumulates evenly across the hour.
+    expect(result[0]!.v).toBeCloseTo(0.25, 6);
+    expect(result[1]!.v).toBeCloseTo(0.5, 6);
+  });
+
+  it("never decreases", () => {
+    const result = cumulativeEnergy(
+      [
+        [
+          { t: 0, s: "2000" },
+          { t: hour / 2, s: "0" },
+        ],
+      ],
+      0,
+      hour,
+      bucket,
+    );
+    const values = result.map((point) => point.v!);
+    for (let i = 1; i < values.length; i += 1) {
+      expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!);
+    }
+    expect(values.at(-1)).toBeCloseTo(1, 6);
+  });
+
+  it("sums several appliances into one curve", () => {
+    const combined = cumulativeEnergy(
+      [[{ t: 0, s: "600" }], [{ t: 0, s: "400" }]],
+      0,
+      hour,
+      bucket,
+    );
+    expect(combined.at(-1)!.v).toBeCloseTo(1, 6);
+  });
+
+  it("runs flat across a gap rather than jumping", () => {
+    // Recorded for the first half hour only; nothing after.
+    const result = cumulativeEnergy([[{ t: 0, s: "1000" }, { t: hour / 2, s: "unavailable" }]], 0, hour, bucket);
+    expect(result.at(-1)!.v).toBeCloseTo(0.5, 6);
+    expect(result[2]!.v).toBeCloseTo(0.5, 6);
+    expect(result[3]!.v).toBeCloseTo(0.5, 6);
+  });
+
+  it("returns nothing when no source reported at all", () => {
+    expect(cumulativeEnergy([], 0, hour, bucket)).toEqual([]);
+    expect(cumulativeEnergy([[]], 0, hour, bucket)).toEqual([]);
+    expect(cumulativeEnergy([[{ t: 0, s: "unavailable" }]], 0, hour, bucket)).toEqual([]);
+  });
+
+  it("ignores readings outside the window", () => {
+    const result = cumulativeEnergy([[{ t: -10 * hour, s: "1000" }]], 0, hour, bucket);
+    // The reading still holds into the window, so it counts from the start.
+    expect(result.at(-1)!.v).toBeCloseTo(1, 6);
   });
 });

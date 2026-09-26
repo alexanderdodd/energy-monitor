@@ -4,6 +4,7 @@ import type { ConnectionStatus, HaSource } from "../ha/types.ts";
 import type { ConfigStore } from "../config/store.ts";
 import {
   costOf,
+  cumulativeEnergy,
   forecastFromDailyTotals,
   parseNumericState,
   roundTo,
@@ -82,6 +83,18 @@ export interface Summary {
    * it is actually true keeps the caveat meaningful.
    */
   categoriesOverlap: boolean;
+}
+
+/** Five minutes keeps a full day under 300 points - plenty for a day curve. */
+const CUMULATIVE_BUCKET_MS = 5 * 60_000;
+
+export interface CumulativeResult {
+  start: number;
+  end: number;
+  bucketMs: number;
+  /** Running total of kWh since local midnight. Empty when nothing recorded. */
+  points: ChartPoint[];
+  totalKwh: number | null;
 }
 
 export interface ApplianceDetail extends ApplianceReading {
@@ -382,6 +395,62 @@ export class ApplianceService {
         ? { ...forecast, estimatedYearlyCost: costOf(forecast.estimatedYearlyKwh, price) }
         : null,
     };
+  }
+
+  /**
+   * Energy accumulated since local midnight, integrated from power history.
+   *
+   * Deliberately independent of long-term statistics: this works from the
+   * first hour a sensor is recorded, whereas daily statistics buckets only
+   * appear after a full day.
+   */
+  async #cumulativeFor(powerEntityIds: string[], now: Date): Promise<CumulativeResult> {
+    const start = startOfLocalDay(now).getTime();
+    const end = now.getTime();
+    const empty: CumulativeResult = {
+      start,
+      end,
+      bucketMs: CUMULATIVE_BUCKET_MS,
+      points: [],
+      totalKwh: null,
+    };
+    if (powerEntityIds.length === 0) return empty;
+
+    const history = await this.#source.getHistory(powerEntityIds, new Date(start), new Date(end));
+    const points = cumulativeEnergy(
+      powerEntityIds.map((entityId) => history[entityId] ?? []),
+      start,
+      end,
+      CUMULATIVE_BUCKET_MS,
+    );
+    if (points.length === 0) return empty;
+
+    return { start, end, bucketMs: CUMULATIVE_BUCKET_MS, points, totalKwh: points.at(-1)?.v ?? null };
+  }
+
+  #powerEntities(appliances: Appliance[]): string[] {
+    return appliances
+      .map((appliance) => appliance.entities.power)
+      .filter((entityId): entityId is string => entityId !== undefined);
+  }
+
+  async getHouseholdCumulative(now = new Date()): Promise<CumulativeResult> {
+    return this.#cumulativeFor(this.#powerEntities(this.#store.enabledAppliances()), now);
+  }
+
+  async getApplianceCumulative(id: string, now = new Date()): Promise<CumulativeResult | null> {
+    const appliance = this.#store.getAppliance(id);
+    if (!appliance) return null;
+    return this.#cumulativeFor(this.#powerEntities([appliance]), now);
+  }
+
+  async getCategoryCumulative(id: string, now = new Date()): Promise<CumulativeResult | null> {
+    const category = this.#store.getCategory(id);
+    if (!category) return null;
+    const members = this.#store
+      .enabledAppliances()
+      .filter((appliance) => category.applianceIds.includes(appliance.id));
+    return this.#cumulativeFor(this.#powerEntities(members), now);
   }
 
   async getHistory(id: string, range: HistoryRange, now = new Date()): Promise<HistoryResult | null> {
