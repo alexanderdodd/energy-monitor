@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Categories: group appliances by what they are for and see what each
+  activity costs per day, week and month, with a week-on-week trend.
+  An appliance may belong to several categories, so category totals overlap;
+  the app says so wherever it shows them together.
+
 ## 0.1.1
 
 - Chart tooltips showed the raw epoch timestamp of the hovered bucket
