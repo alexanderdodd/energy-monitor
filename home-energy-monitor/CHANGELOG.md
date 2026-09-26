@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Chart tooltips showed the raw epoch timestamp of the hovered bucket
+  instead of a date and time.
+
 ## 0.1.0
 
 First release.

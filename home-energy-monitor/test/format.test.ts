@@ -6,6 +6,8 @@ import {
   formatMoney,
   formatPower,
   formatRelativeTime,
+  formatTimeAxis,
+  formatTooltipTime,
   formatVoltage,
 } from "../web/src/lib/format.ts";
 import { hrefFor, parseHash } from "../web/src/lib/router.ts";
@@ -48,6 +50,35 @@ describe("formatting", () => {
     expect(formatRelativeTime("2026-09-26T09:00:00.000Z", now)).toBe("3 hours ago");
     expect(formatRelativeTime(null, now)).toBe("never");
     expect(formatRelativeTime("nonsense", now)).toBe("never");
+  });
+});
+
+describe("chart labels", () => {
+  // 26 September 2026, 20:27 UTC.
+  const timestamp = Date.parse("2026-09-26T20:27:00.000Z");
+
+  it("keeps axis labels terse, because they repeat across the chart", () => {
+    expect(formatTimeAxis(timestamp, "24h")).toMatch(/\d{2}:\d{2}/);
+    expect(formatTimeAxis(timestamp, "30d")).toMatch(/Sep/);
+  });
+
+  it("never shows a raw epoch timestamp in a tooltip", () => {
+    for (const range of ["6h", "24h", "7d", "30d"]) {
+      const label = formatTooltipTime(timestamp, range, "en-GB");
+      expect(label).not.toContain(String(timestamp));
+      expect(label).toContain("Sep");
+      expect(label).toContain("26");
+    }
+  });
+
+  it("includes the time of day except for day buckets", () => {
+    expect(formatTooltipTime(timestamp, "24h", "en-GB")).toMatch(/\d{2}:\d{2}/);
+    // 30d buckets are whole days; a time of day would be meaningless.
+    expect(formatTooltipTime(timestamp, "30d", "en-GB")).not.toMatch(/\d{2}:\d{2}/);
+  });
+
+  it("degrades safely on a bad timestamp", () => {
+    expect(formatTooltipTime(Number.NaN, "24h", "en-GB")).toBe("");
   });
 });
 

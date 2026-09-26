@@ -60,3 +60,31 @@ export function formatTimeAxis(timestamp: number, range: string): string {
   }
   return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
+
+/**
+ * Label for a hovered chart point.
+ *
+ * Axis labels are terse because they repeat across the width of the chart;
+ * a tooltip is read one at a time, so it can afford the date as well. Day
+ * buckets carry no meaningful time of day, so they omit it.
+ */
+export function formatTooltipTime(timestamp: number, range: string, locale?: string): string {
+  if (!Number.isFinite(timestamp)) return "";
+  const date = new Date(timestamp);
+
+  if (range === "30d") {
+    return date.toLocaleDateString(locale, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+  }
+
+  return date.toLocaleString(locale, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}

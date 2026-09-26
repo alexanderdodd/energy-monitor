@@ -3,7 +3,7 @@ import * as echarts from "echarts/core";
 import { BarChart, LineChart } from "echarts/charts";
 import { GridComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
-import { formatTimeAxis } from "../lib/format.ts";
+import { formatTimeAxis, formatTooltipTime } from "../lib/format.ts";
 import type { ChartPoint } from "../lib/types.ts";
 
 // Register only what the two charts need; the rest of ECharts is dropped at
@@ -61,8 +61,31 @@ export default function PowerChart({ points, kind, range, unitLabel }: Props) {
           backgroundColor: theme.tooltipBg,
           borderWidth: 0,
           textStyle: { color: theme.text, fontSize: 12 },
-          valueFormatter: (value: unknown) =>
-            value === null || value === undefined ? "No data" : `${value} ${unitLabel}`,
+          // The x axis holds epoch milliseconds as category values, so the
+          // default header would show the raw number. Build the whole
+          // tooltip instead of only formatting the value.
+          formatter: (params: unknown) => {
+            const points = (Array.isArray(params) ? params : [params]) as {
+              axisValue?: string | number;
+              marker?: string;
+              value?: number | null;
+            }[];
+            const first = points[0];
+            if (!first) return "";
+
+            const heading = formatTooltipTime(Number(first.axisValue), range);
+            const rows = points
+              .map((point) => {
+                const value =
+                  point.value === null || point.value === undefined
+                    ? "No data"
+                    : `${point.value} ${unitLabel}`;
+                return `${point.marker ?? ""} ${value}`;
+              })
+              .join("<br>");
+
+            return `${heading}<br>${rows}`;
+          },
         },
         xAxis: {
           type: "category",
