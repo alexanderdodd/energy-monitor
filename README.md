@@ -157,17 +157,23 @@ offers an **Update** button. No shell access to the Pi is involved.
 Pushing to `main` without bumping the version republishes nothing — the build
 sees the tag already exists and skips it.
 
-### One-time setup after the first build
+### Checking the image is pullable
 
-GHCR packages are private when first created. Home Assistant pulls
-anonymously, so the package must be public:
+Home Assistant pulls from GHCR anonymously, so the package has to be public.
+A package published from a public repository normally inherits that, but it
+is worth confirming after the first build:
 
-1. Open <https://github.com/users/alexanderdodd/packages/container/home-energy-monitor/settings>.
-2. Under **Danger Zone**, choose **Change visibility → Public**.
+```bash
+docker manifest inspect ghcr.io/alexanderdodd/home-energy-monitor:0.1.0
+```
 
-Do the same for the per-architecture images (`amd64-home-energy-monitor`,
-`aarch64-home-energy-monitor`) if you want them pullable directly; Home
-Assistant only needs the multi-arch one.
+If that works without `docker login`, Home Assistant can install it. If it
+returns `denied` or `manifest unknown`, open
+<https://github.com/users/alexanderdodd/packages/container/home-energy-monitor/settings>
+and under **Danger Zone** choose **Change visibility → Public**.
+
+Only the multi-arch image needs to be public; the per-architecture images
+(`amd64-…`, `aarch64-…`) are an implementation detail of the build.
 
 ### Forking this repository
 
