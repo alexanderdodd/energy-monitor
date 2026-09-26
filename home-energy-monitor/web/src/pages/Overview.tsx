@@ -1,6 +1,7 @@
 import { ApplianceCard } from "../components/ApplianceCard.tsx";
 import { CategoryCard } from "../components/CategoryCard.tsx";
 import { ConnectionBanner } from "../components/ConnectionBanner.tsx";
+import { CumulativeCard } from "../components/CumulativeCard.tsx";
 import { Stat } from "../components/Stat.tsx";
 import { formatEnergy, formatMoney, formatPower } from "../lib/format.ts";
 import { navigate } from "../lib/router.ts";
@@ -36,6 +37,18 @@ export function Overview({ live, streaming }: Props) {
 
   const { totals, appliances, currency } = summary.data;
   const liveById = new Map((live?.appliances ?? []).map((item) => [item.id, item]));
+
+  // Category live power is summed from the stream so it moves at the same
+  // pace as the appliance cards, rather than lagging a minute behind in the
+  // summary.
+  const livePowerFor = (applianceIds: string[]): number | null => {
+    if (!live) return null;
+    const powers = applianceIds
+      .map((id) => liveById.get(id)?.powerW)
+      .filter((value): value is number => value !== null && value !== undefined);
+    if (powers.length === 0) return null;
+    return Math.round(powers.reduce((a, b) => a + b, 0) * 10) / 10;
+  };
   // The live stream is seconds old; the summary can be up to a minute old.
   const livePower = live ? live.totalPowerW : totals.livePowerW;
 
@@ -76,12 +89,24 @@ export function Overview({ live, streaming }: Props) {
         />
       </div>
 
+      <CumulativeCard
+        path="api/summary/cumulative"
+        subject="the whole house"
+        currency={currency}
+        pricePerKwh={summary.data.electricityPricePerKwh}
+      />
+
       {summary.data.categories.length > 0 ? (
         <>
           <h2 className="section-title">Categories</h2>
           <div className="category-grid">
             {summary.data.categories.map((category) => (
-              <CategoryCard key={category.id} category={category} currency={currency} />
+              <CategoryCard
+                key={category.id}
+                category={category}
+                currency={currency}
+                livePowerW={livePowerFor(category.applianceIds)}
+              />
             ))}
           </div>
           {summary.data.categoriesOverlap ? (

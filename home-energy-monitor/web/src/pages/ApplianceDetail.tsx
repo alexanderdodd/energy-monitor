@@ -1,5 +1,7 @@
-import { Suspense, lazy, useState } from "react";
+import { lazy, useState } from "react";
+import { ChartBoundary } from "../components/ChartBoundary.tsx";
 import { ConnectionBanner } from "../components/ConnectionBanner.tsx";
+import { CumulativeCard } from "../components/CumulativeCard.tsx";
 import { Stat } from "../components/Stat.tsx";
 import {
   formatCurrent,
@@ -123,9 +125,15 @@ export function ApplianceDetailPage({ id, live, streaming }: Props) {
         {!hasPower ? (
           <p className="chart-placeholder">No power sensor is mapped for this appliance.</p>
         ) : history.data && history.data.power.length > 0 ? (
-          <Suspense fallback={<p className="chart-placeholder">Loading chart&hellip;</p>}>
-            <PowerChart points={history.data.power} kind="power" range={range} unitLabel="W" />
-          </Suspense>
+          <ChartBoundary>
+            <PowerChart
+              points={history.data.power}
+              kind="line"
+              range={range}
+              unitLabel="W"
+              label={`${appliance.name} power over ${range}`}
+            />
+          </ChartBoundary>
         ) : (
           <p className="chart-placeholder">
             {history.loading ? "Loading chart…" : (history.error ?? "No history recorded yet.")}
@@ -137,14 +145,27 @@ export function ApplianceDetailPage({ id, live, streaming }: Props) {
         ) : null}
       </div>
 
+      <CumulativeCard
+        path={`api/appliances/${encodeURIComponent(id)}/cumulative`}
+        subject={appliance.name}
+        currency={currency}
+        pricePerKwh={appliance.electricityPricePerKwh}
+      />
+
       <div className="card chart-card">
         <div className="chart-head">
           <h2>Daily energy</h2>
         </div>
         {energyPoints.length > 0 ? (
-          <Suspense fallback={<p className="chart-placeholder">Loading chart&hellip;</p>}>
-            <PowerChart points={energyPoints} kind="energy" range="30d" unitLabel="kWh" />
-          </Suspense>
+          <ChartBoundary>
+            <PowerChart
+              points={energyPoints}
+              kind="bar"
+              range="30d"
+              unitLabel="kWh"
+              label={`${appliance.name} daily energy`}
+            />
+          </ChartBoundary>
         ) : (
           <p className="chart-placeholder">
             No daily totals yet. They appear once Home Assistant has recorded a full day for an

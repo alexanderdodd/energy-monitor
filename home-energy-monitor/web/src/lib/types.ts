@@ -161,6 +161,15 @@ export interface HistoryResult {
   powerSource: "history" | "statistics";
 }
 
+export interface CumulativeResult {
+  start: number;
+  end: number;
+  bucketMs: number;
+  /** Running kWh total since local midnight; empty when nothing was recorded. */
+  points: ChartPoint[];
+  totalKwh: number | null;
+}
+
 export interface Settings {
   electricityPricePerKwh: number;
   currency: string;

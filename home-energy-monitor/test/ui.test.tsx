@@ -1,7 +1,14 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../web/src/App.tsx";
+
+// ECharts needs a real canvas, which jsdom does not provide. These tests are
+// about the dashboard's own behaviour, so stand the chart in with a marker
+// and let test/charts.test.tsx cover the failure path instead.
+vi.mock("../web/src/components/PowerChart.tsx", () => ({
+  default: ({ label }: { label: string }) => <div data-testid="chart" aria-label={label} />,
+}));
 import { StubEventSource } from "./setup.ts";
 
 const SUMMARY = {
@@ -114,6 +121,18 @@ const CATEGORY_DETAIL = {
   homeAssistant: SUMMARY.connection,
 };
 
+const CUMULATIVE = {
+  start: 1790000000000,
+  end: 1790040000000,
+  bucketMs: 300_000,
+  points: [
+    { t: 1790000000000, v: 0.1 },
+    { t: 1790000300000, v: 0.35 },
+    { t: 1790000600000, v: 0.62 },
+  ],
+  totalKwh: 0.62,
+};
+
 const APPLIANCES = {
   appliances: [
     {
@@ -126,6 +145,26 @@ const APPLIANCES = {
 };
 
 const requests: { url: string; init?: RequestInit }[] = [];
+
+/** A headline stat, scoped by its label - several cards show the same value. */
+function stat(label: string): HTMLElement {
+  return screen.getByText(label).parentElement as HTMLElement;
+}
+
+/**
+ * A card, scoped to its grid.
+ *
+ * Appliance and category cards can share a name - a category card's
+ * accessible name includes its members - so the grid has to disambiguate.
+ */
+function cardIn(grid: ".appliance-grid" | ".category-grid", name: RegExp): HTMLElement {
+  const container = document.querySelector(grid);
+  if (!container) throw new Error(`No ${grid} rendered`);
+  return within(container as HTMLElement).getByRole("link", { name });
+}
+
+const applianceCard = (name: RegExp) => cardIn(".appliance-grid", name);
+const categoryCard = (name: RegExp) => cardIn(".category-grid", name);
 
 function respond(body: unknown) {
   return Promise.resolve(
@@ -143,6 +182,9 @@ beforeEach(() => {
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     requests.push({ url, init });
+    // Match the more specific paths first: "api/summary/cumulative" also
+    // contains "api/summary".
+    if (url.includes("/cumulative")) return respond(CUMULATIVE);
     if (url.includes("/api/summary")) return respond(SUMMARY);
     if (url.includes("/api/settings")) return respond(SETTINGS);
     if (url.includes("/api/discovery")) return respond(DISCOVERY);
@@ -161,13 +203,14 @@ describe("Overview", () => {
   it("shows household totals and one card per appliance", async () => {
     render(<App />);
 
-    expect(await screen.findByText("257 W")).toBeInTheDocument();
-    expect(screen.getByText("4.12 kWh")).toBeInTheDocument();
-    expect(screen.getByText("€1.29")).toBeInTheDocument();
+    await screen.findByText("257 W");
+    expect(within(stat("Live consumption")).getByText("257 W")).toBeInTheDocument();
+    expect(within(stat("Today")).getByText("4.12 kWh")).toBeInTheDocument();
+    expect(within(stat("Estimated cost today")).getByText("€1.29")).toBeInTheDocument();
 
-    expect(screen.getByText("Fridge")).toBeInTheDocument();
-    expect(screen.getByText("43 W")).toBeInTheDocument();
-    expect(screen.getByText("0.62 kWh today")).toBeInTheDocument();
+    const fridge = applianceCard(/Fridge/);
+    expect(within(fridge).getByText("43 W")).toBeInTheDocument();
+    expect(within(fridge).getByText("0.62 kWh today")).toBeInTheDocument();
   });
 
   it("says an appliance is unavailable rather than showing 0 W", async () => {
@@ -197,8 +240,10 @@ describe("Overview", () => {
       ],
     });
 
-    expect(await screen.findByText("1.89 kW")).toBeInTheDocument();
-    expect(screen.getByText("1.85 kW")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(stat("Live consumption")).getByText("1.89 kW")).toBeInTheDocument(),
+    );
+    expect(within(applianceCard(/Dryer/)).getByText("1.85 kW")).toBeInTheDocument();
   });
 
   it("warns when Home Assistant is unreachable", async () => {
@@ -225,11 +270,31 @@ describe("Categories", () => {
     render(<App />);
 
     expect(await screen.findByText("Washing")).toBeInTheDocument();
-    expect(screen.getByText("2.31 kWh")).toBeInTheDocument();
+    expect(screen.getByText("2.31 kWh today")).toBeInTheDocument();
     expect(screen.getByText("€0.69")).toBeInTheDocument();
     expect(screen.getByText("Dryer, Fridge")).toBeInTheDocument();
     // Rising consumption, so the badge points up.
     expect(screen.getByText(/18% vs previous 7 days/)).toBeInTheDocument();
+  });
+
+  it("shows live usage on the card, summed from the stream", async () => {
+    render(<App />);
+    await screen.findByText("Washing");
+
+    StubEventSource.instances[0]!.emit("state", {
+      generatedAt: "2026-09-26T12:00:05.000Z",
+      connection: { connected: true, lastUpdate: "2026-09-26T12:00:05.000Z", lastError: null },
+      totalPowerW: 1893,
+      appliances: [
+        { id: "device:fridge", name: "Fridge", available: true, powerW: 43, currentA: null, voltageV: null },
+        { id: "device:dryer", name: "Dryer", available: true, powerW: 1850, currentA: null, voltageV: null },
+      ],
+    });
+
+    // Washing covers the dryer and the fridge: 1850 + 43 W.
+    const washing = categoryCard(/Washing/);
+    await waitFor(() => expect(within(washing).getByText("1.89 kW")).toBeInTheDocument());
+    expect(within(washing).getByText("now")).toBeInTheDocument();
   });
 
   it("says plainly that overlapping categories do not sum to the total", async () => {
@@ -252,6 +317,61 @@ describe("Categories", () => {
     expect(screen.getByText("€4.26")).toBeInTheDocument();
     // Members link through to their own appliance pages.
     expect(screen.getByRole("link", { name: "Dryer" })).toBeInTheDocument();
+  });
+});
+
+describe("Energy today curve", () => {
+  it("shows the household running total on the overview", async () => {
+    render(<App />);
+
+    const heading = await screen.findByRole("heading", { name: "Energy today" });
+    const chartCard = heading.closest(".chart-card") as HTMLElement;
+
+    // The card's heading renders before its data arrives, so wait for the
+    // total rather than asserting straight after finding the heading.
+    await waitFor(() => expect(within(chartCard).getByText("0.62 kWh")).toBeInTheDocument());
+    expect(within(chartCard).getByText("€0.19")).toBeInTheDocument();
+    expect(within(chartCard).getByTestId("chart")).toBeInTheDocument();
+  });
+
+  it("asks for the household curve, not an appliance one", async () => {
+    render(<App />);
+    await screen.findByText("Energy today");
+    expect(
+      requests.some((request) => request.url.includes("api/summary/cumulative")),
+    ).toBe(true);
+  });
+
+  it("shows a curve on the category page too", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText("Washing"));
+
+    await screen.findByRole("heading", { level: 1, name: "Washing" });
+    await waitFor(() => {
+      expect(
+        requests.some((request) => request.url.includes("api/categories/washing/cumulative")),
+      ).toBe(true);
+    });
+  });
+
+  it("says so plainly when nothing has been recorded yet", async () => {
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({ url, init });
+      if (url.includes("/cumulative")) {
+        return respond({ start: 0, end: 0, bucketMs: 300_000, points: [], totalKwh: null });
+      }
+      if (url.includes("/api/summary")) return respond(SUMMARY);
+      if (url.includes("/api/settings")) return respond(SETTINGS);
+      if (url.includes("/api/discovery")) return respond(DISCOVERY);
+      if (url.includes("/api/categories")) return respond(CATEGORIES);
+      if (url.includes("/api/appliances")) return respond(APPLIANCES);
+      return respond({});
+    });
+
+    render(<App />);
+    expect(await screen.findByText("Nothing recorded yet today.")).toBeInTheDocument();
   });
 });
 

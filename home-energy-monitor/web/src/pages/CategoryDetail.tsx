@@ -1,5 +1,7 @@
-import { Suspense, lazy, useEffect } from "react";
+import { lazy, useEffect } from "react";
+import { ChartBoundary } from "../components/ChartBoundary.tsx";
 import { ConnectionBanner } from "../components/ConnectionBanner.tsx";
+import { CumulativeCard } from "../components/CumulativeCard.tsx";
 import { Stat } from "../components/Stat.tsx";
 import { TrendBadge } from "../components/TrendBadge.tsx";
 import { formatEnergy, formatMoney, formatPower } from "../lib/format.ts";
@@ -77,14 +79,27 @@ export function CategoryDetailPage({ id, live, streaming, onTitle }: Props) {
         </p>
       ) : null}
 
+      <CumulativeCard
+        path={`api/categories/${encodeURIComponent(id)}/cumulative`}
+        subject={data.name}
+        currency={currency}
+        pricePerKwh={data.electricityPricePerKwh}
+      />
+
       <div className="card chart-card">
         <div className="chart-head">
           <h2>Daily energy</h2>
         </div>
         {energyPoints.length > 0 ? (
-          <Suspense fallback={<p className="chart-placeholder">Loading chart&hellip;</p>}>
-            <PowerChart points={energyPoints} kind="energy" range="30d" unitLabel="kWh" />
-          </Suspense>
+          <ChartBoundary>
+            <PowerChart
+              points={energyPoints}
+              kind="bar"
+              range="30d"
+              unitLabel="kWh"
+              label={`${data.name} daily energy`}
+            />
+          </ChartBoundary>
         ) : (
           <p className="chart-placeholder">
             No daily totals yet. They appear once Home Assistant has recorded a full day for an

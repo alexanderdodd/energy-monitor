@@ -12,9 +12,13 @@ echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, CanvasRendere
 
 interface Props {
   points: ChartPoint[];
-  kind: "power" | "energy";
+  /** The mark to draw. Named for the shape, not the measurement, because the
+   *  same line serves instantaneous power and a cumulative energy total. */
+  kind: "line" | "bar";
   range: string;
   unitLabel: string;
+  /** Description for screen readers; the shape alone carries the meaning. */
+  label: string;
 }
 
 function readTheme() {
@@ -28,7 +32,7 @@ function readTheme() {
   };
 }
 
-export default function PowerChart({ points, kind, range, unitLabel }: Props) {
+export default function PowerChart({ points, kind, range, unitLabel, label }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
 
@@ -108,16 +112,16 @@ export default function PowerChart({ points, kind, range, unitLabel }: Props) {
         },
         series: [
           {
-            type: kind === "power" ? "line" : "bar",
+            type: kind,
             // Nulls are gaps in the recording, not zeroes.
             data: points.map((point) => point.v),
             showSymbol: false,
             smooth: false,
             connectNulls: false,
             lineStyle: { width: 1.6, color: theme.accent },
-            itemStyle: { color: theme.accent, borderRadius: kind === "energy" ? [3, 3, 0, 0] : 0 },
+            itemStyle: { color: theme.accent, borderRadius: kind === "bar" ? [3, 3, 0, 0] : 0 },
             areaStyle:
-              kind === "power"
+              kind === "line"
                 ? {
                     color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
                       { offset: 0, color: `${theme.accent}44` },
@@ -132,5 +136,5 @@ export default function PowerChart({ points, kind, range, unitLabel }: Props) {
     );
   }, [points, kind, range, unitLabel]);
 
-  return <div className="chart" ref={container} role="img" aria-label={`${kind} chart`} />;
+  return <div className="chart" ref={container} role="img" aria-label={label} />;
 }
