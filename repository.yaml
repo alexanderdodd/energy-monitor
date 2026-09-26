@@ -1,0 +1,4 @@
+# https://developers.home-assistant.io/docs/apps/repository#repository-configuration
+name: Home Energy Monitor
+url: "https://github.com/alexanderdodd/energy-monitor"
+maintainer: Alexander Dodd <a.dodd@bizzdesign.com>
