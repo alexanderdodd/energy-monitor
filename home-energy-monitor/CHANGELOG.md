@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- "Energy today" running-total charts on the overview, appliance pages and
+  category pages, showing how the day builds up from midnight. Integrated
+  from power history, so they work without waiting a day for long-term
+  statistics.
+- Category cards now show live usage alongside today's energy and cost.
+- A chart that fails to render no longer takes the rest of the page with it.
+
 ## 0.2.0
 
 - Categories: group appliances by what they are for and see what each

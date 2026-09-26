@@ -182,10 +182,35 @@ is disabled in mock mode.
   part-finished day would otherwise always read as a decline. `comparable` is
   false until both windows have data, so week one does not show a fake
   doubling.
+- **Cumulative "energy today" curves are integrated from power history, not
+  read from statistics.** That is the whole point: statistics produce their
+  first day bucket only after a full day, so a fresh install has nothing to
+  show, while recorder history for a power sensor is useful within the hour.
+  Keep the two sources distinct - do not "simplify" the curve onto statistics.
+- **Charts sit behind `ChartBoundary`.** ECharts is the only third-party
+  rendering code in the app, and an uncaught error in a lazily loaded chunk
+  unmounts everything above it. Once a chart moved onto the overview, that
+  meant one failure blanked the whole dashboard. Never render a chart outside
+  the boundary.
 - Prefer paired objects over parallel arrays for anything the UI indexes
   together. `CategoryReading.members` is `{id, name}[]` for exactly this
   reason: an earlier `applianceIds` + `applianceNames` pair fell out of step
   as soon as a category held an id whose appliance had been removed.
+
+## Testing quirks
+
+- **ECharts needs a real canvas and throws in jsdom**, so component tests mock
+  `PowerChart`. `test/charts.test.tsx` covers the failure path through
+  `ChartBoundary` instead. Do not try to render a real chart in jsdom.
+- Several cards can legitimately show the same value now (a category's live
+  power can equal an appliance's), and a category card's accessible name
+  includes its members' names, so `/Fridge/` matches two cards. Scope queries
+  with `within()` on the grid or stat, rather than reaching for the first
+  match.
+- A card's heading renders before its data arrives. Wait for the value, not
+  the heading.
+- The vitest JSON report under `.vitest/` is stale if a run fails to complete;
+  delete it before trusting it.
 
 ## Toolchain quirks
 
