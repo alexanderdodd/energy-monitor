@@ -31,7 +31,7 @@ jobs:
       name: ${{ steps.normalize.outputs.name }}
       description: ${{ steps.normalize.outputs.description }}
       url: ${{ steps.normalize.outputs.url }}
-      version: ${{ steps.info.outputs.version }}
+      version: ${{ steps.normalize.outputs.version }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@v7.0.1
@@ -42,20 +42,37 @@ jobs:
         with:
           path: "./${{ env.APP }}"
 
+      # helpers/info reads config.yaml with `yq -o=json`, so every scalar it
+      # returns is JSON-encoded - `image` arrives as "ghcr.io/..." with the
+      # quotes included. Decode with jq rather than interpolating the values
+      # straight into the shell, which would make them executable.
       - name: Split the image reference
         id: normalize
         env:
-          IMAGE: ${{ steps.info.outputs.image }}
-          NAME: ${{ steps.info.outputs.name }}
-          DESCRIPTION: ${{ steps.info.outputs.description }}
-          URL: ${{ steps.info.outputs.url }}
+          IMAGE_JSON: ${{ steps.info.outputs.image }}
+          VERSION_JSON: ${{ steps.info.outputs.version }}
+          NAME_JSON: ${{ steps.info.outputs.name }}
+          DESCRIPTION_JSON: ${{ steps.info.outputs.description }}
+          URL_JSON: ${{ steps.info.outputs.url }}
         run: |
-          echo "image_name=${IMAGE##*/}" >> "$GITHUB_OUTPUT"
-          echo "registry_prefix=${IMAGE%/*}" >> "$GITHUB_OUTPUT"
-          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
-          echo "description=${DESCRIPTION}" >> "$GITHUB_OUTPUT"
-          if [[ -n "${URL}" && "${URL}" != "null" ]]; then
-            echo "url=${URL}" >> "$GITHUB_OUTPUT"
+          image=$(jq -r . <<< "${IMAGE_JSON}")
+          version=$(jq -r . <<< "${VERSION_JSON}")
+          name=$(jq -r . <<< "${NAME_JSON}")
+          description=$(jq -r . <<< "${DESCRIPTION_JSON}")
+          url=$(jq -r . <<< "${URL_JSON}")
+
+          if [[ "${image}" == "null" || -z "${image}" ]]; then
+            echo "::error::config.yaml must set 'image' so Home Assistant installs a prebuilt container"
+            exit 1
+          fi
+
+          echo "image_name=${image##*/}" >> "$GITHUB_OUTPUT"
+          echo "registry_prefix=${image%/*}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          echo "description=${description}" >> "$GITHUB_OUTPUT"
+          if [[ -n "${url}" && "${url}" != "null" ]]; then
+            echo "url=${url}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Prepare the build matrix
