@@ -161,13 +161,17 @@ export interface HistoryResult {
   powerSource: "history" | "statistics";
 }
 
+export type CumulativeRange = "today" | "7d" | "30d";
+
 export interface CumulativeResult {
+  range: CumulativeRange;
   start: number;
   end: number;
-  bucketMs: number;
-  /** Running kWh total since local midnight; empty when nothing was recorded. */
+  /** Running kWh total across the range; empty when nothing was recorded. */
   points: ChartPoint[];
   totalKwh: number | null;
+  /** "history" means the curve covers only what the recorder still holds. */
+  source: "history" | "statistics";
 }
 
 export interface Settings {

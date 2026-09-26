@@ -237,13 +237,14 @@ export function forecastFromDailyTotals(dailyKwh: number[], now = new Date()): F
 }
 
 /**
- * Combine several daily series into one, bucket by bucket.
+ * Combine several bucketed series into one, bucket by bucket.
  *
- * Used to roll member appliances up into a category. A bucket is null only
- * when every contributing series is null there, so a gap in one appliance's
- * recording does not silently read as zero for the whole group.
+ * Used to roll member appliances up into a category, at whatever resolution
+ * the caller is working in - daily totals or five-minute ones. A bucket is
+ * null only when every contributing series is null there, so a gap in one
+ * appliance's recording does not silently read as zero for the whole group.
  */
-export function sumDailySeries(series: ChartPoint[][]): ChartPoint[] {
+export function sumSeriesByBucket(series: ChartPoint[][]): ChartPoint[] {
   const totals = new Map<number, number | null>();
 
   for (const points of series) {
@@ -257,9 +258,13 @@ export function sumDailySeries(series: ChartPoint[][]): ChartPoint[] {
     }
   }
 
+  // Rounded only enough to keep floating-point noise out of the numbers.
+  // Three decimals would be plenty for daily totals but silently zeroes a
+  // five-minute bucket: an idle fridge draws well under 0.0001 kWh in five
+  // minutes, and hundreds of those rounded away is a visibly wrong total.
   return [...totals.entries()]
     .sort(([a], [b]) => a - b)
-    .map(([t, v]) => ({ t, v: v === null ? null : roundTo(v, 3) }));
+    .map(([t, v]) => ({ t, v: v === null ? null : roundTo(v, 6) }));
 }
 
 /**
@@ -316,6 +321,29 @@ export function trendOverWindows(
         : null,
     comparable: currentSeen && previousSeen,
   };
+}
+
+/**
+ * Turn per-bucket amounts into a running total.
+ *
+ * Used for "how much has been consumed over time" across days, where the
+ * per-day figures already exist as statistics and only need accumulating.
+ * A null bucket contributes nothing and the total carries forward, so a gap
+ * in recording flattens the line rather than breaking it.
+ */
+export function runningTotal(points: ChartPoint[]): ChartPoint[] {
+  let total = 0;
+  let sawAnything = false;
+
+  const result = points.map((point) => {
+    if (point.v !== null) {
+      total += point.v;
+      sawAnything = true;
+    }
+    return { t: point.t, v: roundTo(total, 4) };
+  });
+
+  return sawAnything ? result : [];
 }
 
 /** Local-time midnight at the start of the day containing `date`. */

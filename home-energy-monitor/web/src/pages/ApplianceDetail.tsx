@@ -146,7 +146,7 @@ export function ApplianceDetailPage({ id, live, streaming }: Props) {
       </div>
 
       <CumulativeCard
-        path={`api/appliances/${encodeURIComponent(id)}/cumulative`}
+        basePath={`api/appliances/${encodeURIComponent(id)}/cumulative`}
         subject={appliance.name}
         currency={currency}
         pricePerKwh={appliance.electricityPricePerKwh}

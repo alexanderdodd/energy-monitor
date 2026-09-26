@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0
+
+- The cumulative energy chart now covers today, the last 7 days or the last
+  30 days, so consumption keeps accumulating across days instead of resetting
+  at midnight.
+- Fixed the chart disagreeing with the daily total shown above it. It was
+  measured by integrating power history, which undercounts whenever the
+  recorder does not reach back to the start of the day; it now reads the same
+  statistics as the totals.
+- Fixed small five-minute amounts being rounded away, which understated
+  appliances that idle at low power.
+
 ## 0.3.0
 
 - "Energy today" running-total charts on the overview, appliance pages and

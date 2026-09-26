@@ -1,6 +1,6 @@
 import { log } from "../logger.ts";
 import { buildDailyEnergy, buildHistory, sumDailyEnergy, type HistoryRange, type HistoryResult } from "../ha/history.ts";
-import type { ConnectionStatus, HaSource } from "../ha/types.ts";
+import type { ConnectionStatus, HaSource, StatisticsPeriod } from "../ha/types.ts";
 import type { ConfigStore } from "../config/store.ts";
 import {
   costOf,
@@ -8,10 +8,11 @@ import {
   forecastFromDailyTotals,
   parseNumericState,
   roundTo,
+  runningTotal,
   startOfLocalDay,
   startOfLocalDayBefore,
   startOfLocalMonth,
-  sumDailySeries,
+  sumSeriesByBucket,
   toCanonicalUnit,
   trendOverWindows,
   type ChartPoint,
@@ -88,13 +89,26 @@ export interface Summary {
 /** Five minutes keeps a full day under 300 points - plenty for a day curve. */
 const CUMULATIVE_BUCKET_MS = 5 * 60_000;
 
+/** How far back a cumulative curve reaches. */
+export type CumulativeRange = "today" | "7d" | "30d";
+
+export function isCumulativeRange(value: string): value is CumulativeRange {
+  return value === "today" || value === "7d" || value === "30d";
+}
+
 export interface CumulativeResult {
+  range: CumulativeRange;
   start: number;
   end: number;
-  bucketMs: number;
-  /** Running total of kWh since local midnight. Empty when nothing recorded. */
+  /** Running total of kWh across the range. Empty when nothing recorded. */
   points: ChartPoint[];
   totalKwh: number | null;
+  /**
+   * Where the curve came from. "history" integrates the power sensor and is
+   * available immediately; "statistics" accumulates Home Assistant's daily
+   * totals, which only exist after a full day has been recorded.
+   */
+  source: "history" | "statistics";
 }
 
 export interface ApplianceDetail extends ApplianceReading {
@@ -289,7 +303,7 @@ export class ApplianceService {
       .map((appliance) => this.#measurement(appliance, "power", "power"))
       .filter((value): value is number => value !== null);
 
-    const daily = sumDailySeries(
+    const daily = sumSeriesByBucket(
       members.map((appliance) => dailyByAppliance.get(appliance.id) ?? []),
     );
 
@@ -404,28 +418,103 @@ export class ApplianceService {
    * first hour a sensor is recorded, whereas daily statistics buckets only
    * appear after a full day.
    */
-  async #cumulativeFor(powerEntityIds: string[], now: Date): Promise<CumulativeResult> {
-    const start = startOfLocalDay(now).getTime();
+  /**
+   * Energy consumed over time, as a running total.
+   *
+   * Today's curve is integrated from power history: statistics produce their
+   * first day bucket only after a full day, so on a fresh install history is
+   * the only source that has anything to say.
+   *
+   * Longer ranges accumulate Home Assistant's daily statistics instead.
+   * Replaying a month of raw states to integrate them would be far too much
+   * work for a Raspberry Pi, and the daily totals are already computed.
+   */
+  /**
+   * Energy consumed over the range, as a running total.
+   *
+   * Built from Home Assistant's energy statistics wherever they exist, which
+   * matters for more than resolution: the headline "Today" figure comes from
+   * the same statistics, so the curve and the number agree. Integrating the
+   * power sensor instead silently undercounts whenever recorder history does
+   * not reach back to the start of the range - a very visible wrong answer,
+   * since the chart then disagrees with the figure printed above it.
+   *
+   * Power integration is kept only as a fallback, for an install too new to
+   * have any statistics at all. It is flagged in `source` so the UI can say
+   * the curve covers only what was recorded.
+   */
+  async #cumulativeFor(
+    appliances: Appliance[],
+    range: CumulativeRange,
+    now: Date,
+  ): Promise<CumulativeResult> {
     const end = now.getTime();
+    const start =
+      range === "today"
+        ? startOfLocalDay(now).getTime()
+        : startOfLocalDayBefore(now, (range === "7d" ? 7 : 30) - 1).getTime();
+
+    // Finer buckets first: a day of five-minute statistics draws a far more
+    // readable curve than 24 hourly steps.
+    const periods: StatisticsPeriod[] = range === "today" ? ["5minute", "hour"] : ["day"];
+
+    for (const period of periods) {
+      const series = await this.#energyStatistics(appliances, new Date(start), new Date(end), period);
+      const combined = sumSeriesByBucket(series).filter((point) => point.t >= start);
+      const points = runningTotal(combined);
+      if (points.length > 0) {
+        return { range, start, end, points, totalKwh: points.at(-1)?.v ?? null, source: "statistics" };
+      }
+    }
+
     const empty: CumulativeResult = {
+      range,
       start,
       end,
-      bucketMs: CUMULATIVE_BUCKET_MS,
       points: [],
       totalKwh: null,
+      source: "statistics",
     };
-    if (powerEntityIds.length === 0) return empty;
 
-    const history = await this.#source.getHistory(powerEntityIds, new Date(start), new Date(end));
+    // Only today can fall back to power: replaying weeks of raw states to
+    // integrate them would be far too much work for a Raspberry Pi.
+    if (range !== "today") return empty;
+
+    const entityIds = this.#powerEntities(appliances);
+    if (entityIds.length === 0) return empty;
+
+    const history = await this.#source.getHistory(entityIds, new Date(start), new Date(end));
     const points = cumulativeEnergy(
-      powerEntityIds.map((entityId) => history[entityId] ?? []),
+      entityIds.map((entityId) => history[entityId] ?? []),
       start,
       end,
       CUMULATIVE_BUCKET_MS,
     );
     if (points.length === 0) return empty;
 
-    return { start, end, bucketMs: CUMULATIVE_BUCKET_MS, points, totalKwh: points.at(-1)?.v ?? null };
+    return { range, start, end, points, totalKwh: points.at(-1)?.v ?? null, source: "history" };
+  }
+
+  /** Per-bucket energy `change` for each appliance's cumulative meter. */
+  async #energyStatistics(
+    appliances: Appliance[],
+    start: Date,
+    end: Date,
+    period: StatisticsPeriod,
+  ): Promise<ChartPoint[][]> {
+    const entityIds = appliances
+      .map((appliance) => appliance.entities.energy)
+      .filter((entityId): entityId is string => entityId !== undefined);
+    if (entityIds.length === 0) return [];
+
+    // One call for every member, rather than one per appliance.
+    const stats = await this.#source.getStatistics(entityIds, start, end, period);
+    return entityIds.map((entityId) =>
+      (stats[entityId] ?? []).map((point) => ({
+        t: point.start,
+        v: typeof point.change === "number" ? point.change : null,
+      })),
+    );
   }
 
   #powerEntities(appliances: Appliance[]): string[] {
@@ -434,23 +523,34 @@ export class ApplianceService {
       .filter((entityId): entityId is string => entityId !== undefined);
   }
 
-  async getHouseholdCumulative(now = new Date()): Promise<CumulativeResult> {
-    return this.#cumulativeFor(this.#powerEntities(this.#store.enabledAppliances()), now);
+  async getHouseholdCumulative(
+    range: CumulativeRange = "today",
+    now = new Date(),
+  ): Promise<CumulativeResult> {
+    return this.#cumulativeFor(this.#store.enabledAppliances(), range, now);
   }
 
-  async getApplianceCumulative(id: string, now = new Date()): Promise<CumulativeResult | null> {
+  async getApplianceCumulative(
+    id: string,
+    range: CumulativeRange = "today",
+    now = new Date(),
+  ): Promise<CumulativeResult | null> {
     const appliance = this.#store.getAppliance(id);
     if (!appliance) return null;
-    return this.#cumulativeFor(this.#powerEntities([appliance]), now);
+    return this.#cumulativeFor([appliance], range, now);
   }
 
-  async getCategoryCumulative(id: string, now = new Date()): Promise<CumulativeResult | null> {
+  async getCategoryCumulative(
+    id: string,
+    range: CumulativeRange = "today",
+    now = new Date(),
+  ): Promise<CumulativeResult | null> {
     const category = this.#store.getCategory(id);
     if (!category) return null;
     const members = this.#store
       .enabledAppliances()
       .filter((appliance) => category.applianceIds.includes(appliance.id));
-    return this.#cumulativeFor(this.#powerEntities(members), now);
+    return this.#cumulativeFor(members, range, now);
   }
 
   async getHistory(id: string, range: HistoryRange, now = new Date()): Promise<HistoryResult | null> {

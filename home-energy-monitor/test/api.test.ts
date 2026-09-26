@@ -382,27 +382,57 @@ describe("categories", () => {
   });
 });
 
-describe("cumulative day curves", () => {
-  it("integrates today's power history for the household", async () => {
+describe("cumulative curves", () => {
+  it("agrees with the Today figure shown above it", async () => {
     await configureFridge(current);
-    const response = await current.app.inject({ url: "/api/summary/cumulative" });
-    expect(response.statusCode).toBe(200);
 
-    const body = response.json() as {
-      points: { t: number; v: number }[];
-      totalKwh: number;
-      bucketMs: number;
+    const summary = (await current.app.inject({ url: "/api/summary" })).json() as {
+      totals: { energyTodayKwh: number };
     };
-    expect(body.bucketMs).toBe(300_000);
-    expect(body.points.length).toBeGreaterThan(0);
-    expect(body.totalKwh).toBeGreaterThan(0);
+    const curve = (await current.app.inject({ url: "/api/summary/cumulative" })).json() as {
+      totalKwh: number;
+      source: string;
+      points: { v: number }[];
+    };
 
-    // A running total may never fall.
-    const values = body.points.map((point) => point.v);
+    // Both come from the same statistics, so a user never sees two different
+    // answers to "how much today".
+    expect(curve.source).toBe("statistics");
+    expect(curve.totalKwh).toBe(summary.totals.energyTodayKwh);
+
+    const values = curve.points.map((point) => point.v);
     for (let i = 1; i < values.length; i += 1) {
       expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!);
     }
-    expect(values.at(-1)).toBe(body.totalKwh);
+    expect(values.at(-1)).toBe(curve.totalKwh);
+  });
+
+  it("accumulates across days for the longer ranges", async () => {
+    await configureFridge(current);
+    const response = await current.app.inject({ url: "/api/summary/cumulative?range=7d" });
+    expect(response.statusCode).toBe(200);
+
+    const body = response.json() as { range: string; totalKwh: number; points: { v: number }[] };
+    expect(body.range).toBe("7d");
+    // Yesterday's 0.8 plus today's 0.62 - the curve keeps climbing across
+    // the day boundary rather than resetting at midnight.
+    expect(body.totalKwh).toBeCloseTo(1.42, 3);
+    expect(body.points.at(0)!.v).toBeCloseTo(0.8, 3);
+  });
+
+  it("falls back to integrating power when no statistics exist yet", async () => {
+    await configureFridge(current);
+    current.source.options.statistics = {};
+
+    const response = await current.app.inject({ url: "/api/summary/cumulative" });
+    const body = response.json() as { source: string; totalKwh: number };
+    expect(body.source).toBe("history");
+    expect(body.totalKwh).toBeGreaterThan(0);
+  });
+
+  it("rejects an unsupported range", async () => {
+    const response = await current.app.inject({ url: "/api/summary/cumulative?range=99y" });
+    expect(response.statusCode).toBe(400);
   });
 
   it("serves the same shape per appliance and per category", async () => {
@@ -429,6 +459,7 @@ describe("cumulative day curves", () => {
   it("returns an empty curve, not an error, when nothing was recorded", async () => {
     await configureFridge(current);
     current.source.options.history = {};
+    current.source.options.statistics = {};
     const response = await current.app.inject({
       url: "/api/appliances/device:dev-dryer/cumulative",
     });

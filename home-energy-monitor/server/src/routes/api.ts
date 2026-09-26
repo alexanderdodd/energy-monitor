@@ -3,7 +3,7 @@ import { log } from "../logger.ts";
 import { discoverAppliances } from "../ha/discovery.ts";
 import { isHistoryRange } from "../ha/history.ts";
 import type { HaSource } from "../ha/types.ts";
-import type { ApplianceService } from "../appliances/service.ts";
+import { isCumulativeRange, type ApplianceService, type CumulativeRange } from "../appliances/service.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { LiveBroadcaster } from "../live.ts";
 
@@ -146,9 +146,17 @@ export function registerApiRoutes(app: FastifyInstance, deps: ApiDependencies): 
    * are always today-to-now and are integrated from power, so they work
    * before long-term statistics have produced anything.
    */
-  const cumulative = async (load: () => Promise<unknown | null>, reply: FastifyReply) => {
+  const cumulative = async (
+    rawRange: string | undefined,
+    load: (range: CumulativeRange) => Promise<unknown | null>,
+    reply: FastifyReply,
+  ) => {
+    const range = rawRange ?? "today";
+    if (!isCumulativeRange(range)) {
+      return reply.code(400).send({ error: "range must be one of today, 7d, 30d" });
+    }
     try {
-      const result = await load();
+      const result = await load(range);
       if (!result) return reply.code(404).send({ error: "Not found" });
       return result;
     } catch (error) {
@@ -157,16 +165,28 @@ export function registerApiRoutes(app: FastifyInstance, deps: ApiDependencies): 
     }
   };
 
-  app.get("/api/summary/cumulative", async (_request, reply) =>
-    cumulative(() => service.getHouseholdCumulative(), reply),
+  app.get<{ Querystring: { range?: string } }>("/api/summary/cumulative", async (request, reply) =>
+    cumulative(request.query.range, (range) => service.getHouseholdCumulative(range), reply),
   );
 
-  app.get<{ Params: { id: string } }>("/api/appliances/:id/cumulative", async (request, reply) =>
-    cumulative(() => service.getApplianceCumulative(request.params.id), reply),
+  app.get<{ Params: { id: string }; Querystring: { range?: string } }>(
+    "/api/appliances/:id/cumulative",
+    async (request, reply) =>
+      cumulative(
+        request.query.range,
+        (range) => service.getApplianceCumulative(request.params.id, range),
+        reply,
+      ),
   );
 
-  app.get<{ Params: { id: string } }>("/api/categories/:id/cumulative", async (request, reply) =>
-    cumulative(() => service.getCategoryCumulative(request.params.id), reply),
+  app.get<{ Params: { id: string }; Querystring: { range?: string } }>(
+    "/api/categories/:id/cumulative",
+    async (request, reply) =>
+      cumulative(
+        request.query.range,
+        (range) => service.getCategoryCumulative(request.params.id, range),
+        reply,
+      ),
   );
 
   app.get("/api/summary", async (_request, reply) => {

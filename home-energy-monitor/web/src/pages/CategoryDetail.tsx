@@ -80,7 +80,7 @@ export function CategoryDetailPage({ id, live, streaming, onTitle }: Props) {
       ) : null}
 
       <CumulativeCard
-        path={`api/categories/${encodeURIComponent(id)}/cumulative`}
+        basePath={`api/categories/${encodeURIComponent(id)}/cumulative`}
         subject={data.name}
         currency={currency}
         pricePerKwh={data.electricityPricePerKwh}

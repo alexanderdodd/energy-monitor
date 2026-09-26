@@ -1,14 +1,20 @@
-import { lazy } from "react";
+import { lazy, useState } from "react";
 import { ChartBoundary } from "./ChartBoundary.tsx";
 import { formatEnergy, formatMoney } from "../lib/format.ts";
 import { useApiResource } from "../lib/useApi.ts";
-import type { CumulativeResult } from "../lib/types.ts";
+import type { CumulativeRange, CumulativeResult } from "../lib/types.ts";
 
 const PowerChart = lazy(() => import("./PowerChart.tsx"));
 
+const RANGES: { range: CumulativeRange; label: string }[] = [
+  { range: "today", label: "Today" },
+  { range: "7d", label: "7d" },
+  { range: "30d", label: "30d" },
+];
+
 interface Props {
-  /** API path serving the curve for this scope. */
-  path: string;
+  /** API path for this scope; the range is appended. */
+  basePath: string;
   /** What the curve covers, e.g. "Fridge" or "the whole house". */
   subject: string;
   currency: string;
@@ -19,31 +25,44 @@ interface Props {
 const REFRESH_MS = 120_000;
 
 /**
- * "How today is building up": energy used since midnight, as a running total.
+ * Total energy consumed over time, as a running sum.
  *
- * Integrated from power history rather than read from long-term statistics,
- * so it has something to show within an hour of a sensor being added instead
- * of waiting a full day for the first statistics bucket.
+ * Built from the same Home Assistant statistics as the figures above it, so
+ * the curve and the headline total always tell the same story.
  */
-export function CumulativeCard({ path, subject, currency, pricePerKwh }: Props) {
-  const curve = useApiResource<CumulativeResult>(path, REFRESH_MS);
+export function CumulativeCard({ basePath, subject, currency, pricePerKwh }: Props) {
+  const [range, setRange] = useState<CumulativeRange>("today");
+  const curve = useApiResource<CumulativeResult>(`${basePath}?range=${range}`, REFRESH_MS);
 
-  // Defensive: a response that is not the shape we expect should degrade to
-  // "nothing recorded", never throw and take the whole dashboard with it.
   const points = Array.isArray(curve.data?.points) ? curve.data.points : [];
   const total = typeof curve.data?.totalKwh === "number" ? curve.data.totalKwh : null;
   const cost = total === null ? null : total * pricePerKwh;
+  const label = RANGES.find((option) => option.range === range)?.label ?? "Today";
 
   return (
     <div className="card chart-card">
       <div className="chart-head">
-        <h2>Energy today</h2>
-        {total !== null ? (
-          <span className="chart-total">
-            <span className="kwh">{formatEnergy(total)}</span>
-            <span className="cost">{formatMoney(cost, currency)}</span>
-          </span>
-        ) : null}
+        <h2>Energy used</h2>
+        <div className="head-right">
+          {total !== null ? (
+            <span className="chart-total">
+              <span className="kwh">{formatEnergy(total)}</span>
+              <span className="cost">{formatMoney(cost, currency)}</span>
+            </span>
+          ) : null}
+          <div className="range-tabs" role="group" aria-label="Cumulative range">
+            {RANGES.map((option) => (
+              <button
+                key={option.range}
+                type="button"
+                aria-pressed={option.range === range}
+                onClick={() => setRange(option.range)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {points.length > 0 ? (
@@ -51,18 +70,23 @@ export function CumulativeCard({ path, subject, currency, pricePerKwh }: Props) 
           <PowerChart
             points={points}
             kind="line"
-            range="24h"
+            range={range === "today" ? "24h" : "30d"}
             unitLabel="kWh"
-            label={`Energy used today by ${subject}, accumulating from midnight`}
+            label={`Total energy used by ${subject} over ${label}, accumulating`}
           />
         </ChartBoundary>
       ) : (
         <p className="chart-placeholder">
-          {curve.loading
-            ? "Loading chart…"
-            : (curve.error ?? "Nothing recorded yet today.")}
+          {curve.loading ? "Loading chart…" : (curve.error ?? "Nothing recorded yet.")}
         </p>
       )}
+
+      {curve.data?.source === "history" && points.length > 0 ? (
+        <p className="meta">
+          Measured from recorded power, so this covers only the period Home Assistant still holds
+          history for. It will match the daily total once statistics have been recorded.
+        </p>
+      ) : null}
     </div>
   );
 }

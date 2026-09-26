@@ -182,11 +182,22 @@ is disabled in mock mode.
   part-finished day would otherwise always read as a decline. `comparable` is
   false until both windows have data, so week one does not show a fake
   doubling.
-- **Cumulative "energy today" curves are integrated from power history, not
-  read from statistics.** That is the whole point: statistics produce their
-  first day bucket only after a full day, so a fresh install has nothing to
-  show, while recorder history for a power sensor is useful within the hour.
-  Keep the two sources distinct - do not "simplify" the curve onto statistics.
+- **Cumulative curves come from energy statistics, with power integration
+  only as a fallback.** This was got wrong once: integrating power silently
+  undercounts whenever recorder history does not reach back to the start of
+  the range, and the curve then contradicts the "Today" figure printed
+  directly above it. Two different answers to the same question on one screen
+  is worse than a coarser chart. The fallback stays for installs too new to
+  have any statistics, and is flagged in `source` so the UI can caveat it.
+- **Any figure shown twice must come from one source.** The headline totals
+  and the cumulative curve both read the same statistics for this reason.
+  Before adding a second way to compute something already on screen, make it
+  reuse the first.
+- **Watch rounding when a helper starts serving a finer resolution.**
+  `sumSeriesByBucket` rounded to three decimals, which was harmless for daily
+  totals and silently zeroed five-minute buckets when the cumulative curve
+  began using it - an idle fridge draws ~0.00006 kWh in five minutes. It now
+  rounds to six.
 - **Charts sit behind `ChartBoundary`.** ECharts is the only third-party
   rendering code in the app, and an uncaught error in a lazily loaded chunk
   unmounts everything above it. Once a chart moved onto the overview, that

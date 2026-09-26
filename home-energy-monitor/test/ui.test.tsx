@@ -122,15 +122,16 @@ const CATEGORY_DETAIL = {
 };
 
 const CUMULATIVE = {
+  range: "today",
   start: 1790000000000,
   end: 1790040000000,
-  bucketMs: 300_000,
   points: [
     { t: 1790000000000, v: 0.1 },
     { t: 1790000300000, v: 0.35 },
     { t: 1790000600000, v: 0.62 },
   ],
   totalKwh: 0.62,
+  source: "statistics",
 };
 
 const APPLIANCES = {
@@ -146,9 +147,18 @@ const APPLIANCES = {
 
 const requests: { url: string; init?: RequestInit }[] = [];
 
-/** A headline stat, scoped by its label - several cards show the same value. */
+/**
+ * A headline stat, scoped by its label.
+ *
+ * Restricted to the stat grids: labels like "Today" also appear as chart
+ * range buttons, and several cards can show the same value.
+ */
 function stat(label: string): HTMLElement {
-  return screen.getByText(label).parentElement as HTMLElement;
+  for (const container of document.querySelectorAll(".headline, .detail-grid")) {
+    const match = within(container as HTMLElement).queryByText(label);
+    if (match) return match.parentElement as HTMLElement;
+  }
+  throw new Error(`No stat labelled "${label}"`);
 }
 
 /**
@@ -324,7 +334,7 @@ describe("Energy today curve", () => {
   it("shows the household running total on the overview", async () => {
     render(<App />);
 
-    const heading = await screen.findByRole("heading", { name: "Energy today" });
+    const heading = await screen.findByRole("heading", { name: "Energy used" });
     const chartCard = heading.closest(".chart-card") as HTMLElement;
 
     // The card's heading renders before its data arrives, so wait for the
@@ -336,10 +346,44 @@ describe("Energy today curve", () => {
 
   it("asks for the household curve, not an appliance one", async () => {
     render(<App />);
-    await screen.findByText("Energy today");
+    await screen.findByText("Energy used");
     expect(
-      requests.some((request) => request.url.includes("api/summary/cumulative")),
+      requests.some((request) => request.url.includes("api/summary/cumulative?range=today")),
     ).toBe(true);
+  });
+
+  it("switches the curve to a multi-day range", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const heading = await screen.findByRole("heading", { name: "Energy used" });
+    const chartCard = heading.closest(".chart-card") as HTMLElement;
+    await user.click(within(chartCard).getByRole("button", { name: "7d" }));
+
+    await waitFor(() =>
+      expect(
+        requests.some((request) => request.url.includes("api/summary/cumulative?range=7d")),
+      ).toBe(true),
+    );
+  });
+
+  it("says when the curve only covers what the recorder still holds", async () => {
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({ url, init });
+      if (url.includes("/cumulative")) return respond({ ...CUMULATIVE, source: "history" });
+      if (url.includes("/api/summary")) return respond(SUMMARY);
+      if (url.includes("/api/settings")) return respond(SETTINGS);
+      if (url.includes("/api/discovery")) return respond(DISCOVERY);
+      if (url.includes("/api/categories")) return respond(CATEGORIES);
+      if (url.includes("/api/appliances")) return respond(APPLIANCES);
+      return respond({});
+    });
+
+    render(<App />);
+    expect(
+      await screen.findByText(/covers only the period Home Assistant still holds history for/),
+    ).toBeInTheDocument();
   });
 
   it("shows a curve on the category page too", async () => {
@@ -360,7 +404,7 @@ describe("Energy today curve", () => {
       const url = String(input);
       requests.push({ url, init });
       if (url.includes("/cumulative")) {
-        return respond({ start: 0, end: 0, bucketMs: 300_000, points: [], totalKwh: null });
+        return respond({ range: "today", start: 0, end: 0, points: [], totalKwh: null, source: "statistics" });
       }
       if (url.includes("/api/summary")) return respond(SUMMARY);
       if (url.includes("/api/settings")) return respond(SETTINGS);
@@ -371,7 +415,7 @@ describe("Energy today curve", () => {
     });
 
     render(<App />);
-    expect(await screen.findByText("Nothing recorded yet today.")).toBeInTheDocument();
+    expect(await screen.findByText("Nothing recorded yet.")).toBeInTheDocument();
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sumDailySeries, trendOverWindows } from "../server/src/appliances/calculations.ts";
+import { runningTotal, sumSeriesByBucket, trendOverWindows } from "../server/src/appliances/calculations.ts";
 import { hasOverlap } from "../server/src/appliances/service.ts";
 import { sanitizeConfig, slugify } from "../server/src/config/store.ts";
 
@@ -12,9 +12,9 @@ function day(offset: number): number {
 
 const now = new Date(2026, 8, 26, 14, 30);
 
-describe("sumDailySeries", () => {
+describe("sumSeriesByBucket", () => {
   it("adds matching buckets across appliances", () => {
-    const result = sumDailySeries([
+    const result = sumSeriesByBucket([
       [
         { t: day(-1), v: 1 },
         { t: day(0), v: 2 },
@@ -31,23 +31,23 @@ describe("sumDailySeries", () => {
   });
 
   it("keeps a bucket null only when every contributor is null", () => {
-    const result = sumDailySeries([
+    const result = sumSeriesByBucket([
       [{ t: day(0), v: null }],
       [{ t: day(0), v: 3 }],
     ]);
     expect(result).toEqual([{ t: day(0), v: 3 }]);
 
-    const allMissing = sumDailySeries([[{ t: day(0), v: null }], [{ t: day(0), v: null }]]);
+    const allMissing = sumSeriesByBucket([[{ t: day(0), v: null }], [{ t: day(0), v: null }]]);
     expect(allMissing).toEqual([{ t: day(0), v: null }]);
   });
 
   it("unions buckets the appliances do not share, in time order", () => {
-    const result = sumDailySeries([[{ t: day(0), v: 1 }], [{ t: day(-2), v: 2 }]]);
+    const result = sumSeriesByBucket([[{ t: day(0), v: 1 }], [{ t: day(-2), v: 2 }]]);
     expect(result.map((point) => point.t)).toEqual([day(-2), day(0)]);
   });
 
   it("handles no members at all", () => {
-    expect(sumDailySeries([])).toEqual([]);
+    expect(sumSeriesByBucket([])).toEqual([]);
   });
 });
 
@@ -169,5 +169,50 @@ describe("category persistence", () => {
 
   it("defaults to no categories", () => {
     expect(sanitizeConfig({}).categories).toEqual([]);
+  });
+});
+
+describe("sumSeriesByBucket rounding", () => {
+  it("keeps values too small to survive three decimals", () => {
+    // An idle fridge draws about 0.7 W: roughly 0.00006 kWh per five minutes.
+    // Rounded to three decimals every bucket reads zero and a day of standby
+    // vanishes, which is exactly the sort of quiet wrongness that makes a
+    // chart disagree with the figure printed above it.
+    const tiny = 0.0000583;
+    const buckets = Array.from({ length: 288 }, (_, i) => ({ t: i * 300_000, v: tiny }));
+
+    const summed = sumSeriesByBucket([buckets]);
+    expect(summed.every((point) => point.v !== null && point.v > 0)).toBe(true);
+
+    // Six decimals still round, but the loss is now noise rather than the
+    // whole value: three decimals would have given exactly zero.
+    const total = summed.reduce((sum, point) => sum + (point.v ?? 0), 0);
+    const exact = tiny * 288;
+    expect(Math.abs(total - exact) / exact).toBeLessThan(0.01);
+  });
+});
+
+describe("runningTotal", () => {
+  it("accumulates across buckets and never falls", () => {
+    const result = runningTotal([
+      { t: 1, v: 0.5 },
+      { t: 2, v: 0.25 },
+      { t: 3, v: 1 },
+    ]);
+    expect(result.map((point) => point.v)).toEqual([0.5, 0.75, 1.75]);
+  });
+
+  it("carries the total across a gap rather than breaking the line", () => {
+    const result = runningTotal([
+      { t: 1, v: 2 },
+      { t: 2, v: null },
+      { t: 3, v: 1 },
+    ]);
+    expect(result.map((point) => point.v)).toEqual([2, 2, 3]);
+  });
+
+  it("returns nothing when no bucket had a value", () => {
+    expect(runningTotal([{ t: 1, v: null }])).toEqual([]);
+    expect(runningTotal([])).toEqual([]);
   });
 });

@@ -10,8 +10,8 @@ the data Home Assistant already has.
 
 - **Live power** for each appliance, updating within seconds.
 - **Energy and cost** for today, this week and this month.
-- **History charts** over 6 hours, 24 hours, 7 days and 30 days, plus an
-  "energy today" curve showing the day building up from midnight.
+- **History charts** over 6 hours, 24 hours, 7 days and 30 days, plus a
+  cumulative "energy used" curve over today, 7 days or 30 days.
 - **Estimates** for monthly and yearly use, clearly labelled as estimates.
 - **Categories** grouping appliances by activity — what "Washing" costs this
   week, and whether it is going up.

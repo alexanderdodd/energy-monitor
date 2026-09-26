@@ -90,7 +90,7 @@ export function Overview({ live, streaming }: Props) {
       </div>
 
       <CumulativeCard
-        path="api/summary/cumulative"
+        basePath="api/summary/cumulative"
         subject="the whole house"
         currency={currency}
         pricePerKwh={summary.data.electricityPricePerKwh}

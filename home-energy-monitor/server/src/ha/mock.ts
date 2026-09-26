@@ -215,20 +215,25 @@ export class MockHaSource implements HaSource {
 
       for (let bucket = first.getTime(); bucket < end.getTime(); bucket += bucketMs) {
         const bucketEnd = Math.min(bucket + bucketMs, end.getTime());
-        // Sample at roughly five-minute resolution so short, high-power
-        // bursts (an air fryer, a kettle) are not averaged away.
-        const samples = Math.min(288, Math.max(12, Math.round((bucketEnd - bucket) / 300_000)));
-        let total = 0;
-        for (let i = 0; i < samples; i += 1) {
-          total += profile.powerAt(bucket + ((bucketEnd - bucket) * i) / samples);
+        // Integrate on a fixed one-minute grid rather than a fixed number of
+        // samples per bucket. Bucket starts are minute-aligned, so a day's
+        // bucket and that day's five-minute buckets land on the same sample
+        // points and total identically - which is what real Home Assistant
+        // statistics do, and what the app relies on when it checks a
+        // cumulative curve against the daily figure shown beside it.
+        const step = 60_000;
+        let wattMs = 0;
+        for (let t = bucket; t < bucketEnd; t += step) {
+          wattMs += profile.powerAt(t) * Math.min(step, bucketEnd - t);
         }
-        const meanW = total / samples;
-        const hours = (bucketEnd - bucket) / 3_600_000;
+        const spanMs = bucketEnd - bucket;
+        const meanW = spanMs > 0 ? wattMs / spanMs : 0;
+        const kwh = wattMs / 3_600_000 / 1_000;
         points.push({
           start: bucket,
           end: bucketEnd,
           mean: Math.round(meanW * 100) / 100,
-          change: Math.round((meanW * hours) / 1_000 * 1_000) / 1_000,
+          change: Math.round(kwh * 1_000_000) / 1_000_000,
         });
       }
       result[id] = points;

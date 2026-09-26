@@ -37,11 +37,15 @@ appliance actually is shared.
 Set categories up in **Settings → Categories**. They are optional; skip them
 and the dashboard works exactly as before.
 
-**Energy today** appears on the overview, on every appliance page and on
-every category page: a running total showing how the day builds up from
-midnight. It is integrated from power history rather than read from long-term
-statistics, so it works from the first hour a sensor is recorded instead of
-waiting a full day.
+**Energy used** appears on the overview, on every appliance page and on every
+category page: a running total of everything consumed, over today, the last 7
+days or the last 30 days. Today's curve climbs from midnight; the longer ones
+keep climbing across day boundaries rather than resetting.
+
+It is built from the same Home Assistant statistics as the figures above it,
+so the curve and the totals always agree. On an install too new to have any
+statistics, it falls back to measuring the power sensor's recorded history
+and says so, because that covers only the period the recorder still holds.
 
 **Settings** holds the electricity price and currency, the appliance list,
 categories, and the Home Assistant connection status.
@@ -80,9 +84,10 @@ dashboard behind your back.
 - **Estimates** — a rolling average of complete days, extrapolated. Today is
   excluded, because a partial day would drag every estimate down. They are
   estimates, and the app says so.
-- **Energy today curves** — integrated from the power sensor's recorded
-  history. A stretch with no recording runs flat rather than jumping, and a
-  curve with no data at all says so instead of drawing a flat zero.
+- **Energy used curves** — a running sum of the same statistics behind the
+  daily figures, at five-minute resolution for today and daily resolution for
+  longer ranges. A stretch with no recording carries the total forward flat
+  rather than breaking the line.
 - **Category totals and trends** — rolled up from the same per-appliance daily
   figures, so a category always agrees with its members. Trends compare the
   last 7 whole days with the 7 before; today is excluded, and nothing is
