@@ -7,6 +7,20 @@ covers the traps.
 **Keep this file current.** When you learn something here that would have
 saved you an hour, add it.
 
+## Working agreement
+
+- **Commit after each meaningful change, without being asked.** One coherent
+  unit of work per commit - a feature, a fix, a doc update. Do not batch
+  unrelated edits together, and do not leave work sitting uncommitted.
+- Write commit messages that explain *why*. The what is in the diff; the
+  reasoning is not, and this project has already had two fixes whose cause
+  was impossible to infer from the change alone.
+- **Pushing is a separate decision.** A push to `main` runs CI that publishes
+  a container image to GHCR, so push when asked, when releasing, or when the
+  change is only useful once it is remote.
+- If a change taught you something non-obvious, update this file in the same
+  commit.
+
 ## Layout
 
 ```text
