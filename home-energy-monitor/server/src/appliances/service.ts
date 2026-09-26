@@ -288,7 +288,7 @@ export class ApplianceService {
       id: category.id,
       name: category.name,
       applianceIds: category.applianceIds,
-      applianceNames: members.map((appliance) => appliance.name),
+      members: members.map((appliance) => ({ id: appliance.id, name: appliance.name })),
       livePowerW:
         livePowers.length > 0 ? roundTo(livePowers.reduce((a, b) => a + b, 0), 1) : null,
       energyTodayKwh,

@@ -12,6 +12,8 @@ the data Home Assistant already has.
 - **Energy and cost** for today, this week and this month.
 - **History charts** over 6 hours, 24 hours, 7 days and 30 days.
 - **Estimates** for monthly and yearly use, clearly labelled as estimates.
+- **Categories** grouping appliances by activity — what "Washing" costs this
+  week, and whether it is going up.
 - **Automatic discovery** — no typing entity IDs.
 - Runs entirely inside Home Assistant, behind Ingress, with no separate login.
 

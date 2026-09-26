@@ -22,8 +22,23 @@ the air fryer on and the number moves within a couple of seconds.
 the last 7 days, and estimates for the month and year. The power chart covers
 6 hours, 24 hours, 7 days or 30 days; below it, a bar chart of daily energy.
 
-**Settings** holds the electricity price and currency, the appliance list, and
-the Home Assistant connection status.
+**Categories** group appliances by what they are for, so you can read spend by
+activity rather than by device — "Washing" covering the washing machine and
+the dehumidifier, say. Each category shows today's energy and cost, a
+14-day sparkline, and how the last 7 days compare with the 7 before. Open one
+for weekly and monthly totals and a daily chart.
+
+An appliance can belong to **more than one** category — a dehumidifier is
+reasonably part of both washing and climate. The cost of that flexibility is
+that category totals overlap, so they add up to more than the household
+total. The app says so wherever it shows them together, and only when an
+appliance actually is shared.
+
+Set categories up in **Settings → Categories**. They are optional; skip them
+and the dashboard works exactly as before.
+
+**Settings** holds the electricity price and currency, the appliance list,
+categories, and the Home Assistant connection status.
 
 ## How devices are found
 
@@ -59,6 +74,10 @@ dashboard behind your back.
 - **Estimates** — a rolling average of complete days, extrapolated. Today is
   excluded, because a partial day would drag every estimate down. They are
   estimates, and the app says so.
+- **Category totals and trends** — rolled up from the same per-appliance daily
+  figures, so a category always agrees with its members. Trends compare the
+  last 7 whole days with the 7 before; today is excluded, and nothing is
+  shown until both windows have data.
 
 If an appliance has no cumulative energy sensor, the app falls back to a
 vendor-supplied "energy today" sensor where one exists.

@@ -5,10 +5,16 @@ import {
   toAppliances,
   type ApplianceDraft,
 } from "../components/ApplianceEditor.tsx";
+import { CategoryEditor } from "../components/CategoryEditor.tsx";
 import { api } from "../lib/api.ts";
 import { formatRelativeTime } from "../lib/format.ts";
 import { useApiResource } from "../lib/useApi.ts";
-import type { Appliance, DiscoveredAppliance, Settings as SettingsPayload } from "../lib/types.ts";
+import type {
+  Appliance,
+  Category,
+  DiscoveredAppliance,
+  Settings as SettingsPayload,
+} from "../lib/types.ts";
 
 interface DiscoveryResponse {
   appliances: DiscoveredAppliance[];
@@ -18,13 +24,19 @@ interface AppliancesResponse {
   appliances: Appliance[];
 }
 
+interface CategoriesResponse {
+  categories: Category[];
+}
+
 const CURRENCIES = ["EUR", "GBP", "USD", "CHF", "SEK", "NOK", "DKK", "PLN", "AUD", "CAD"];
 
 export function Settings() {
   const settings = useApiResource<SettingsPayload>("api/settings");
   const discovery = useApiResource<DiscoveryResponse>("api/discovery");
   const configured = useApiResource<AppliancesResponse>("api/appliances");
+  const storedCategories = useApiResource<CategoriesResponse>("api/categories");
 
+  const [categories, setCategories] = useState<Category[] | null>(null);
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("EUR");
   const [drafts, setDrafts] = useState<ApplianceDraft[] | null>(null);
@@ -43,6 +55,11 @@ export function Settings() {
     setDrafts(buildDrafts(discovery.data.appliances, configured.data.appliances, false));
   }, [discovery.data, configured.data]);
 
+  useEffect(() => {
+    if (!storedCategories.data) return;
+    setCategories(storedCategories.data.categories);
+  }, [storedCategories.data]);
+
   const save = async () => {
     setSaving(true);
     setStatus(null);
@@ -55,6 +72,16 @@ export function Settings() {
       await api.put("api/settings", { electricityPricePerKwh: parsed, currency });
       if (drafts) {
         await api.put("api/appliances", { appliances: toAppliances(drafts) });
+      }
+      if (categories) {
+        // Drop half-finished rows rather than rejecting the whole save.
+        const named = categories.filter((category) => category.name.trim().length > 0);
+        const saved = await api.put<CategoriesResponse>("api/categories", {
+          categories: named,
+        });
+        // Take back the server-assigned ids so a second save does not
+        // create duplicates of the categories just added.
+        setCategories(saved.categories);
       }
       setStatus("Saved");
     } catch (cause) {
@@ -128,6 +155,19 @@ export function Settings() {
             Rediscover devices
           </button>
         </div>
+      </div>
+
+      <div className="card panel">
+        <h2>Categories</h2>
+        <p className="description">
+          Group appliances by what they are for, and see what each activity costs. An appliance can
+          belong to more than one category.
+        </p>
+        <CategoryEditor
+          categories={categories ?? []}
+          appliances={(drafts ?? []).filter((draft) => draft.enabled)}
+          onChange={setCategories}
+        />
       </div>
 
       <div className="card panel">

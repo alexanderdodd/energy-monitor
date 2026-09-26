@@ -165,6 +165,28 @@ is disabled in mock mode.
   Assistant records on change, so a plain mean over-weights bursts of rapid
   changes.
 
+## Design decisions with consequences
+
+- **Category membership is many-to-many.** An appliance can sit in several
+  categories, which is what makes a dehumidifier expressible as both washing
+  and climate. The cost is that category totals overlap and do not sum to the
+  household total. This was chosen deliberately over one-category-per-
+  appliance; do not "fix" the arithmetic. The summary exposes
+  `categoriesOverlap`, and the UI states the caveat *only when an appliance is
+  actually shared*, so it stays meaningful rather than becoming boilerplate.
+- Category figures are rolled up from the per-appliance daily series the
+  summary has already fetched, so categories add no Home Assistant traffic.
+  Keep it that way - a per-category statistics query would multiply recorder
+  load on a Pi.
+- Trends compare two adjacent windows of **whole** days and exclude today. A
+  part-finished day would otherwise always read as a decline. `comparable` is
+  false until both windows have data, so week one does not show a fake
+  doubling.
+- Prefer paired objects over parallel arrays for anything the UI indexes
+  together. `CategoryReading.members` is `{id, name}[]` for exactly this
+  reason: an earlier `applianceIds` + `applianceNames` pair fell out of step
+  as soon as a category held an id whose appliance had been removed.
+
 ## Toolchain quirks
 
 - **TypeScript is pinned to 6.0.3, not 7.x.** `typescript-eslint` declares

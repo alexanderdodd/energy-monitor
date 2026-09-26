@@ -97,9 +97,14 @@ export interface DiscoveredAppliance {
 export interface CategoryReading {
   id: string;
   name: string;
+  /** Membership as configured, including ids that no longer resolve. */
   applianceIds: string[];
-  /** Names of the member appliances that actually exist and are enabled. */
-  applianceNames: string[];
+  /**
+   * The member appliances that actually exist and are enabled, as id/name
+   * pairs. Kept paired rather than as two parallel arrays, which fall out of
+   * step the moment a stale id is present.
+   */
+  members: { id: string; name: string }[];
   livePowerW: number | null;
   energyTodayKwh: number | null;
   costToday: number | null;

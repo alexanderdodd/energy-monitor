@@ -320,13 +320,13 @@ describe("categories", () => {
 
     const body = response.json() as {
       name: string;
-      applianceNames: string[];
+      members: { id: string; name: string }[];
       energyTodayKwh: number;
       costToday: number;
       livePowerW: number | null;
     };
     expect(body.name).toBe("Washing");
-    expect(body.applianceNames).toEqual(["Fridge", "Dryer"]);
+    expect(body.members.map((member) => member.name)).toEqual(["Fridge", "Dryer"]);
     // Only the fridge has energy statistics; the dryer is unavailable.
     expect(body.energyTodayKwh).toBe(0.62);
     expect(body.costToday).toBe(0.19);
@@ -359,7 +359,8 @@ describe("categories", () => {
 
     const response = await current.app.inject({ url: "/api/categories/washing" });
     expect(response.statusCode).toBe(200);
-    expect((response.json() as { applianceNames: string[] }).applianceNames).toEqual(["Fridge"]);
+    const body = response.json() as { members: { id: string; name: string }[] };
+    expect(body.members).toEqual([{ id: "device:dev-fridge", name: "Fridge" }]);
   });
 
   it("404s for an unknown category and rejects a bad payload", async () => {

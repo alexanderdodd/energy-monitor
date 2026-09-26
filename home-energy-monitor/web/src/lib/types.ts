@@ -63,6 +63,46 @@ export interface ApplianceReading {
   costToday: number | null;
 }
 
+/**
+ * A user-defined grouping of appliances. Membership is many-to-many, so an
+ * appliance may count towards several categories at once.
+ */
+export interface Category {
+  id: string;
+  name: string;
+  applianceIds: string[];
+}
+
+export interface Trend {
+  windowDays: number;
+  currentKwh: number;
+  previousKwh: number;
+  changePercent: number | null;
+  comparable: boolean;
+}
+
+export interface CategoryReading {
+  id: string;
+  name: string;
+  applianceIds: string[];
+  members: { id: string; name: string }[];
+  livePowerW: number | null;
+  energyTodayKwh: number | null;
+  costToday: number | null;
+  energyWeekKwh: number | null;
+  costWeek: number | null;
+  energyMonthKwh: number | null;
+  costMonth: number | null;
+  dailyKwh: ChartPoint[];
+  trend: Trend | null;
+}
+
+export interface CategoryDetail extends CategoryReading {
+  currency: string;
+  electricityPricePerKwh: number;
+  homeAssistant: ConnectionStatus;
+}
+
 export interface SummaryTotals {
   livePowerW: number | null;
   energyTodayKwh: number | null;
@@ -82,6 +122,9 @@ export interface Summary {
   setupComplete: boolean;
   totals: SummaryTotals;
   appliances: ApplianceReading[];
+  categories: CategoryReading[];
+  /** True when an appliance belongs to more than one category. */
+  categoriesOverlap: boolean;
 }
 
 export interface Forecast {

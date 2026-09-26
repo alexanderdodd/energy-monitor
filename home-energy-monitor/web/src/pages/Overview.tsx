@@ -1,4 +1,5 @@
 import { ApplianceCard } from "../components/ApplianceCard.tsx";
+import { CategoryCard } from "../components/CategoryCard.tsx";
 import { ConnectionBanner } from "../components/ConnectionBanner.tsx";
 import { Stat } from "../components/Stat.tsx";
 import { formatEnergy, formatMoney, formatPower } from "../lib/format.ts";
@@ -74,6 +75,23 @@ export function Overview({ live, streaming }: Props) {
           }
         />
       </div>
+
+      {summary.data.categories.length > 0 ? (
+        <>
+          <h2 className="section-title">Categories</h2>
+          <div className="category-grid">
+            {summary.data.categories.map((category) => (
+              <CategoryCard key={category.id} category={category} currency={currency} />
+            ))}
+          </div>
+          {summary.data.categoriesOverlap ? (
+            <p className="meta overlap-note">
+              Some appliances belong to more than one category, so these figures overlap and will
+              add up to more than the household total.
+            </p>
+          ) : null}
+        </>
+      ) : null}
 
       <h2 className="section-title">Appliances</h2>
       <div className="appliance-grid">

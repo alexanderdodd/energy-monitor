@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export type Route =
   | { name: "overview" }
   | { name: "appliance"; id: string }
+  | { name: "category"; id: string }
   | { name: "settings" }
   | { name: "setup" };
 
@@ -20,6 +21,9 @@ export function parseHash(hash: string): Route {
   if (path.startsWith("appliance/")) {
     return { name: "appliance", id: decodeURIComponent(path.slice("appliance/".length)) };
   }
+  if (path.startsWith("category/")) {
+    return { name: "category", id: decodeURIComponent(path.slice("category/".length)) };
+  }
   return { name: "overview" };
 }
 
@@ -31,6 +35,8 @@ export function hrefFor(route: Route): string {
       return "#/setup";
     case "appliance":
       return `#/appliance/${encodeURIComponent(route.id)}`;
+    case "category":
+      return `#/category/${encodeURIComponent(route.id)}`;
     default:
       return "#/";
   }
