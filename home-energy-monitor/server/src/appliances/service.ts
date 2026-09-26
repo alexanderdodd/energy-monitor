@@ -10,12 +10,20 @@ import {
   startOfLocalDay,
   startOfLocalDayBefore,
   startOfLocalMonth,
+  sumDailySeries,
   toCanonicalUnit,
+  trendOverWindows,
   type ChartPoint,
   type Forecast,
   type MeasurementKind,
 } from "./calculations.ts";
-import type { Appliance, ApplianceReading, EntityRole } from "./types.ts";
+import type {
+  Appliance,
+  ApplianceReading,
+  Category,
+  CategoryReading,
+  EntityRole,
+} from "./types.ts";
 
 /**
  * How long a set of daily-energy statistics is reused before being refetched.
@@ -67,6 +75,13 @@ export interface Summary {
   setupComplete: boolean;
   totals: SummaryTotals;
   appliances: ApplianceReading[];
+  categories: CategoryReading[];
+  /**
+   * True when at least one appliance belongs to more than one category, so
+   * the UI knows to say that category totals overlap. Stating it only when
+   * it is actually true keeps the caveat meaningful.
+   */
+  categoriesOverlap: boolean;
 }
 
 export interface ApplianceDetail extends ApplianceReading {
@@ -214,6 +229,17 @@ export class ApplianceService {
 
     const totals = this.#totals(readings, dailySeries, price, now);
 
+    // Reuse the per-appliance series already fetched above rather than
+    // asking Home Assistant for the same statistics again.
+    const dailyByAppliance = new Map<string, ChartPoint[]>();
+    appliances.forEach((appliance, index) => {
+      dailyByAppliance.set(appliance.id, dailySeries[index] ?? []);
+    });
+
+    const categories = config.categories.map((category) =>
+      this.#categoryReading(category, appliances, dailyByAppliance, price, now),
+    );
+
     return {
       generatedAt: now.toISOString(),
       connection: this.#source.status(),
@@ -222,7 +248,74 @@ export class ApplianceService {
       setupComplete: config.setupComplete,
       totals,
       appliances: readings,
+      categories,
+      categoriesOverlap: hasOverlap(config.categories),
     };
+  }
+
+  /**
+   * Roll a category's member appliances up into one set of figures.
+   *
+   * Synchronous by design: it works from series the caller has already
+   * fetched, so adding categories costs no extra Home Assistant traffic.
+   */
+  #categoryReading(
+    category: Category,
+    appliances: Appliance[],
+    dailyByAppliance: Map<string, ChartPoint[]>,
+    price: number,
+    now: Date,
+  ): CategoryReading {
+    // Ignore ids for appliances that have since been removed or disabled,
+    // rather than treating stale membership as an error.
+    const members = category.applianceIds
+      .map((id) => appliances.find((appliance) => appliance.id === id))
+      .filter((appliance): appliance is Appliance => appliance !== undefined);
+
+    const livePowers = members
+      .map((appliance) => this.#measurement(appliance, "power", "power"))
+      .filter((value): value is number => value !== null);
+
+    const daily = sumDailySeries(
+      members.map((appliance) => dailyByAppliance.get(appliance.id) ?? []),
+    );
+
+    const energyTodayKwh = sumDailyEnergy(daily, now);
+    const energyWeekKwh = sumDailyEnergy(daily, startOfLocalDayBefore(now, 6));
+    const energyMonthKwh = sumDailyEnergy(daily, startOfLocalMonth(now));
+
+    return {
+      id: category.id,
+      name: category.name,
+      applianceIds: category.applianceIds,
+      applianceNames: members.map((appliance) => appliance.name),
+      livePowerW:
+        livePowers.length > 0 ? roundTo(livePowers.reduce((a, b) => a + b, 0), 1) : null,
+      energyTodayKwh,
+      costToday: costOf(energyTodayKwh, price),
+      energyWeekKwh,
+      costWeek: costOf(energyWeekKwh, price),
+      energyMonthKwh,
+      costMonth: costOf(energyMonthKwh, price),
+      dailyKwh: daily,
+      trend: trendOverWindows(daily, now),
+    };
+  }
+
+  async getCategoryDetail(id: string, now = new Date()): Promise<CategoryReading | null> {
+    const category = this.#store.getCategory(id);
+    if (!category) return null;
+
+    const price = this.#store.get().settings.electricityPricePerKwh;
+    const appliances = this.#store.enabledAppliances();
+
+    const dailyByAppliance = new Map<string, ChartPoint[]>();
+    for (const appliance of appliances) {
+      if (!category.applianceIds.includes(appliance.id)) continue;
+      dailyByAppliance.set(appliance.id, await this.#dailyEnergy(appliance, now));
+    }
+
+    return this.#categoryReading(category, appliances, dailyByAppliance, price, now);
   }
 
   #totals(
@@ -296,6 +389,18 @@ export class ApplianceService {
     if (!appliance) return null;
     return buildHistory(this.#source, appliance, range, now);
   }
+}
+
+/** True when any appliance is a member of more than one category. */
+export function hasOverlap(categories: Category[]): boolean {
+  const seen = new Set<string>();
+  for (const category of categories) {
+    for (const id of new Set(category.applianceIds)) {
+      if (seen.has(id)) return true;
+      seen.add(id);
+    }
+  }
+  return false;
 }
 
 /** Sum values, ignoring nulls; null when nothing was available at all. */

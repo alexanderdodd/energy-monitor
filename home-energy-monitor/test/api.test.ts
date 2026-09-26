@@ -288,6 +288,99 @@ describe("settings validation", () => {
   });
 });
 
+describe("categories", () => {
+  async function configureCategories(h: Harness) {
+    await configureFridge(h);
+    const response = await h.app.inject({
+      method: "PUT",
+      url: "/api/categories",
+      payload: {
+        categories: [
+          { name: "Washing", applianceIds: ["device:dev-fridge", "device:dev-dryer"] },
+          { name: "Cooling", applianceIds: ["device:dev-fridge"] },
+        ],
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json() as { categories: { id: string; name: string }[] };
+  }
+
+  it("assigns ids from the name and saves membership", async () => {
+    const body = await configureCategories(current);
+    expect(body.categories.map((category) => category.id)).toEqual(["washing", "cooling"]);
+
+    const reloaded = await current.app.inject({ url: "/api/categories" });
+    expect((reloaded.json() as { categories: unknown[] }).categories).toHaveLength(2);
+  });
+
+  it("rolls member appliances up into category totals", async () => {
+    await configureCategories(current);
+    const response = await current.app.inject({ url: "/api/categories/washing" });
+    expect(response.statusCode).toBe(200);
+
+    const body = response.json() as {
+      name: string;
+      applianceNames: string[];
+      energyTodayKwh: number;
+      costToday: number;
+      livePowerW: number | null;
+    };
+    expect(body.name).toBe("Washing");
+    expect(body.applianceNames).toEqual(["Fridge", "Dryer"]);
+    // Only the fridge has energy statistics; the dryer is unavailable.
+    expect(body.energyTodayKwh).toBe(0.62);
+    expect(body.costToday).toBe(0.19);
+    expect(body.livePowerW).toBe(43.2);
+  });
+
+  it("reports overlap when an appliance is in more than one category", async () => {
+    await configureCategories(current);
+    const summary = await current.app.inject({ url: "/api/summary" });
+    const body = summary.json() as {
+      categories: { id: string; energyTodayKwh: number | null }[];
+      categoriesOverlap: boolean;
+    };
+    expect(body.categoriesOverlap).toBe(true);
+    expect(body.categories.map((category) => category.id)).toEqual(["washing", "cooling"]);
+    // The fridge counts towards both, so the two categories overlap.
+    expect(body.categories[0]!.energyTodayKwh).toBe(0.62);
+    expect(body.categories[1]!.energyTodayKwh).toBe(0.62);
+  });
+
+  it("ignores membership for appliances that no longer exist", async () => {
+    await configureFridge(current);
+    await current.app.inject({
+      method: "PUT",
+      url: "/api/categories",
+      payload: {
+        categories: [{ name: "Washing", applianceIds: ["device:dev-fridge", "device:gone"] }],
+      },
+    });
+
+    const response = await current.app.inject({ url: "/api/categories/washing" });
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { applianceNames: string[] }).applianceNames).toEqual(["Fridge"]);
+  });
+
+  it("404s for an unknown category and rejects a bad payload", async () => {
+    expect((await current.app.inject({ url: "/api/categories/nope" })).statusCode).toBe(404);
+    const bad = await current.app.inject({
+      method: "PUT",
+      url: "/api/categories",
+      payload: { categories: "nope" },
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+
+  it("reports no overlap and no categories by default", async () => {
+    await configureFridge(current);
+    const summary = await current.app.inject({ url: "/api/summary" });
+    const body = summary.json() as { categories: unknown[]; categoriesOverlap: boolean };
+    expect(body.categories).toEqual([]);
+    expect(body.categoriesOverlap).toBe(false);
+  });
+});
+
 describe("ingress guard", () => {
   it("refuses requests that did not come through Home Assistant", async () => {
     const guarded = await harness(true);

@@ -8,6 +8,7 @@ import {
   type ApplianceEntities,
   type AppConfig,
   type AppSettings,
+  type Category,
   type EntityRole,
 } from "../appliances/types.ts";
 
@@ -68,6 +69,47 @@ export function sanitizeSettings(raw: unknown, fallback: AppSettings = DEFAULT_S
   };
 }
 
+/**
+ * Turn a category name into a stable id.
+ *
+ * The id is derived once, at creation, and then left alone - renaming
+ * "Washing" to "Laundry" must not orphan the category or break a bookmarked
+ * URL.
+ */
+export function slugify(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return slug.length > 0 ? slug : "category";
+}
+
+function sanitizeCategory(raw: unknown, taken: Set<string>): Category | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const source = raw as Record<string, unknown>;
+
+  const name = typeof source.name === "string" ? source.name.trim() : "";
+  if (name.length === 0) return null;
+
+  // A category arriving without an id is newly created in the UI; derive one.
+  let id = typeof source.id === "string" && source.id.trim() ? source.id.trim() : slugify(name);
+  if (taken.has(id)) {
+    let suffix = 2;
+    while (taken.has(`${id}-${suffix}`)) suffix += 1;
+    id = `${id}-${suffix}`;
+  }
+  taken.add(id);
+
+  const applianceIds = Array.isArray(source.applianceIds)
+    ? [...new Set(source.applianceIds.filter((value): value is string => typeof value === "string"))]
+    : [];
+
+  return { id, name: name.slice(0, 64), applianceIds };
+}
+
 /** Coerce anything read from disk into a valid config, discarding junk. */
 export function sanitizeConfig(raw: unknown): AppConfig {
   const source = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
@@ -75,11 +117,19 @@ export function sanitizeConfig(raw: unknown): AppConfig {
     ? source.appliances.map(sanitizeAppliance).filter((item): item is Appliance => item !== null)
     : [];
 
+  const taken = new Set<string>();
+  const categories = Array.isArray(source.categories)
+    ? source.categories
+        .map((item) => sanitizeCategory(item, taken))
+        .filter((item): item is Category => item !== null)
+    : [];
+
   return {
     version: 1,
     setupComplete: source.setupComplete === true,
     settings: sanitizeSettings(source.settings),
     appliances,
+    categories,
   };
 }
 
@@ -141,6 +191,24 @@ export class ConfigStore {
       .map(sanitizeAppliance)
       .filter((item): item is Appliance => item !== null);
     this.#config.setupComplete = setupComplete;
+    await this.#persist();
+    return this.#config;
+  }
+
+  categories(): Category[] {
+    return this.#config.categories;
+  }
+
+  getCategory(id: string): Category | undefined {
+    return this.#config.categories.find((category) => category.id === id);
+  }
+
+  async setCategories(raw: unknown): Promise<AppConfig> {
+    if (!Array.isArray(raw)) throw new Error("categories must be an array");
+    const taken = new Set<string>();
+    this.#config.categories = raw
+      .map((item) => sanitizeCategory(item, taken))
+      .filter((item): item is Category => item !== null);
     await this.#persist();
     return this.#config;
   }

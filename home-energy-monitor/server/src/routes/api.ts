@@ -109,6 +109,38 @@ export function registerApiRoutes(app: FastifyInstance, deps: ApiDependencies): 
     }
   });
 
+  app.get("/api/categories", async () => {
+    return { categories: store.categories() };
+  });
+
+  app.put("/api/categories", async (request, reply) => {
+    const body = request.body as { categories?: unknown } | undefined;
+    try {
+      const config = await store.setCategories(body?.categories);
+      return { categories: config.categories };
+    } catch (error) {
+      log.warning(`Rejected category update: ${(error as Error).message}`);
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>("/api/categories/:id", async (request, reply) => {
+    try {
+      const detail = await service.getCategoryDetail(request.params.id);
+      if (!detail) return reply.code(404).send({ error: "Unknown category" });
+      const config = store.get();
+      return {
+        ...detail,
+        currency: config.settings.currency,
+        electricityPricePerKwh: config.settings.electricityPricePerKwh,
+        homeAssistant: source.status(),
+      };
+    } catch (error) {
+      log.warning(`Could not build category detail: ${(error as Error).message}`);
+      return reply.code(503).send({ error: "Could not reach Home Assistant" });
+    }
+  });
+
   app.get("/api/summary", async (_request, reply) => {
     try {
       return await service.getSummary();

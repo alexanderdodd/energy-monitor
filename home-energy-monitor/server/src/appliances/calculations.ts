@@ -156,6 +156,88 @@ export function forecastFromDailyTotals(dailyKwh: number[], now = new Date()): F
   };
 }
 
+/**
+ * Combine several daily series into one, bucket by bucket.
+ *
+ * Used to roll member appliances up into a category. A bucket is null only
+ * when every contributing series is null there, so a gap in one appliance's
+ * recording does not silently read as zero for the whole group.
+ */
+export function sumDailySeries(series: ChartPoint[][]): ChartPoint[] {
+  const totals = new Map<number, number | null>();
+
+  for (const points of series) {
+    for (const point of points) {
+      const existing = totals.get(point.t);
+      if (point.v === null) {
+        if (existing === undefined) totals.set(point.t, null);
+        continue;
+      }
+      totals.set(point.t, (existing ?? 0) + point.v);
+    }
+  }
+
+  return [...totals.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([t, v]) => ({ t, v: v === null ? null : roundTo(v, 3) }));
+}
+
+/**
+ * How use has moved between two equal, adjacent windows of whole days.
+ *
+ * Today is excluded from both windows - a day still in progress would always
+ * look like a decline.
+ */
+export interface Trend {
+  windowDays: number;
+  currentKwh: number;
+  previousKwh: number;
+  /** Null when the previous window was zero, where a percentage means nothing. */
+  changePercent: number | null;
+  /** False until both windows have data, so the UI can stay quiet early on. */
+  comparable: boolean;
+}
+
+export function trendOverWindows(
+  daily: ChartPoint[],
+  now = new Date(),
+  windowDays = 7,
+): Trend | null {
+  const todayStart = startOfLocalDay(now).getTime();
+  const currentStart = startOfLocalDayBefore(now, windowDays).getTime();
+  const previousStart = startOfLocalDayBefore(now, windowDays * 2).getTime();
+
+  let current = 0;
+  let previous = 0;
+  let currentSeen = false;
+  let previousSeen = false;
+
+  for (const point of daily) {
+    if (point.v === null) continue;
+    if (point.t >= todayStart) continue;
+    if (point.t >= currentStart) {
+      current += point.v;
+      currentSeen = true;
+    } else if (point.t >= previousStart) {
+      previous += point.v;
+      previousSeen = true;
+    }
+  }
+
+  if (!currentSeen && !previousSeen) return null;
+
+  return {
+    windowDays,
+    currentKwh: roundTo(current, 3),
+    previousKwh: roundTo(previous, 3),
+    changePercent:
+      previousSeen && previous > 0
+        ? roundTo(((current - previous) / previous) * 100, 1)
+        : null,
+    comparable: currentSeen && previousSeen,
+  };
+}
+
 /** Local-time midnight at the start of the day containing `date`. */
 export function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());

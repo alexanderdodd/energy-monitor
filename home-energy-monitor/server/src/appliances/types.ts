@@ -1,4 +1,6 @@
-import type { MeasurementKind } from "./calculations.ts";
+import type { MeasurementKind, Trend } from "./calculations.ts";
+
+export type { Trend } from "./calculations.ts";
 
 /** The measurement slots an appliance can fill. */
 export interface ApplianceEntities {
@@ -23,6 +25,21 @@ export interface Appliance {
   enabled: boolean;
 }
 
+/**
+ * A user-defined grouping of appliances, such as "Washing" or "Cooking".
+ *
+ * Membership is many-to-many on purpose: a dehumidifier can reasonably count
+ * towards both washing and climate. The consequence is that category totals
+ * overlap and do not sum to the household total, which the UI states wherever
+ * it shows them together rather than quietly presenting a wrong sum.
+ */
+export interface Category {
+  id: string;
+  name: string;
+  /** Appliance ids. Ids that no longer exist are ignored, not an error. */
+  applianceIds: string[];
+}
+
 export interface AppSettings {
   electricityPricePerKwh: number;
   currency: string;
@@ -34,6 +51,7 @@ export interface AppConfig {
   setupComplete: boolean;
   settings: AppSettings;
   appliances: Appliance[];
+  categories: Category[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -46,6 +64,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   setupComplete: false,
   settings: DEFAULT_SETTINGS,
   appliances: [],
+  categories: [],
 };
 
 /** One measurement entity found during discovery. */
@@ -72,6 +91,25 @@ export interface DiscoveredAppliance {
   candidates: DiscoveredEntity[];
   /** True when this appliance is already present in the saved configuration. */
   configured: boolean;
+}
+
+/** Aggregated figures for one category. */
+export interface CategoryReading {
+  id: string;
+  name: string;
+  applianceIds: string[];
+  /** Names of the member appliances that actually exist and are enabled. */
+  applianceNames: string[];
+  livePowerW: number | null;
+  energyTodayKwh: number | null;
+  costToday: number | null;
+  energyWeekKwh: number | null;
+  costWeek: number | null;
+  energyMonthKwh: number | null;
+  costMonth: number | null;
+  /** Daily totals over the rolling window, for the sparkline and charts. */
+  dailyKwh: { t: number; v: number | null }[];
+  trend: Trend | null;
 }
 
 /** Live values for one appliance. */
