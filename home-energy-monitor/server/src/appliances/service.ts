@@ -39,9 +39,20 @@ const ENERGY_CACHE_TTL_MS = 60_000;
 /** Days of daily buckets to keep, enough for the 30-day view and forecasts. */
 const ENERGY_WINDOW_DAYS = 30;
 
+interface DailyEnergy {
+  points: ChartPoint[];
+  /**
+   * True when the series came from Home Assistant's statistics, meaning it
+   * genuinely covers past days. False when it is only today's figure read
+   * straight off a vendor counter, in which case nothing can be said about
+   * any earlier day.
+   */
+  fromStatistics: boolean;
+}
+
 interface CachedEnergy {
   fetchedAt: number;
-  points: ChartPoint[];
+  daily: DailyEnergy;
 }
 
 export interface LiveApplianceState {
@@ -229,10 +240,10 @@ export class ApplianceService {
    * briefly. Falls back to the vendor's "energy today" sensor when no
    * statistics are available for the cumulative meter.
    */
-  async #dailyEnergy(appliance: Appliance, now: Date): Promise<ChartPoint[]> {
+  async #dailyEnergy(appliance: Appliance, now: Date): Promise<DailyEnergy> {
     const cached = this.#energyCache.get(appliance.id);
     if (cached && now.getTime() - cached.fetchedAt < ENERGY_CACHE_TTL_MS) {
-      return cached.points;
+      return cached.daily;
     }
 
     let points: ChartPoint[] = [];
@@ -247,21 +258,64 @@ export class ApplianceService {
       log.debug(`Energy statistics unavailable for ${appliance.id}: ${(error as Error).message}`);
     }
 
+    let daily: DailyEnergy = { points, fromStatistics: points.length > 0 };
+
     if (points.length === 0) {
       const today = this.#measurement(appliance, "energyDay", "energy");
       if (today !== null) {
-        points = [{ t: startOfLocalDay(now).getTime(), v: today }];
+        daily = {
+          points: [{ t: startOfLocalDay(now).getTime(), v: today }],
+          fromStatistics: false,
+        };
       }
     }
 
-    this.#energyCache.set(appliance.id, { fetchedAt: now.getTime(), points });
-    return points;
+    this.#energyCache.set(appliance.id, { fetchedAt: now.getTime(), daily });
+    return daily;
+  }
+
+  /**
+   * Energy for each period an appliance reports on.
+   *
+   * Without statistics the only thing known is today, read off the vendor's
+   * daily counter. Summing that single figure over a week would print a
+   * confident 0.00 kWh for six days nobody has any record of, so the week
+   * comes back null - unknown, which the UI shows as a dash.
+   *
+   * The month is different: plugs commonly expose a monthly counter too, and
+   * ignoring it meant showing 0.00 kWh for a month the device itself said was
+   * 1.86 kWh.
+   */
+  async #energyPeriods(
+    appliance: Appliance,
+    now: Date,
+  ): Promise<{ daily: DailyEnergy; today: number | null; week: number | null; month: number | null }> {
+    const daily = await this.#dailyEnergy(appliance, now);
+    const today = sumDailyEnergy(daily.points, now);
+
+    if (daily.fromStatistics) {
+      return {
+        daily,
+        today,
+        week: sumDailyEnergy(daily.points, startOfLocalDayBefore(now, 6)),
+        month: sumDailyEnergy(daily.points, startOfLocalMonth(now)),
+      };
+    }
+
+    return {
+      daily,
+      today,
+      week: null,
+      // Without a monthly counter the month is as unknowable as the week;
+      // reporting today's figure as the month's would imply the rest of the
+      // month was zero.
+      month: this.#measurement(appliance, "energyMonth", "energy"),
+    };
   }
 
   async #reading(appliance: Appliance, pricePerKwh: number, now: Date): Promise<ApplianceReading> {
     const live = this.#liveState(appliance);
-    const daily = await this.#dailyEnergy(appliance, now);
-    const energyTodayKwh = sumDailyEnergy(daily, now);
+    const { today: energyTodayKwh } = await this.#energyPeriods(appliance, now);
 
     return {
       ...live,
@@ -280,13 +334,18 @@ export class ApplianceService {
 
     const readings: ApplianceReading[] = [];
     const dailySeries: ChartPoint[][] = [];
+    const weekly: (number | null)[] = [];
+    const monthly: (number | null)[] = [];
 
     for (const appliance of appliances) {
       readings.push(await this.#reading(appliance, price, now));
-      dailySeries.push(await this.#dailyEnergy(appliance, now));
+      const periods = await this.#energyPeriods(appliance, now);
+      dailySeries.push(periods.daily.points);
+      weekly.push(periods.week);
+      monthly.push(periods.month);
     }
 
-    const totals = this.#totals(readings, dailySeries, price, now);
+    const totals = this.#totals(readings, dailySeries, weekly, monthly, price, now);
 
     // Reuse the per-appliance series already fetched above rather than
     // asking Home Assistant for the same statistics again.
@@ -295,8 +354,16 @@ export class ApplianceService {
       dailyByAppliance.set(appliance.id, dailySeries[index] ?? []);
     });
 
+    const periodsByAppliance = new Map<string, { week: number | null; month: number | null }>();
+    appliances.forEach((appliance, index) => {
+      periodsByAppliance.set(appliance.id, {
+        week: weekly[index] ?? null,
+        month: monthly[index] ?? null,
+      });
+    });
+
     const categories = config.categories.map((category) =>
-      this.#categoryReading(category, appliances, dailyByAppliance, price, now),
+      this.#categoryReading(category, appliances, dailyByAppliance, periodsByAppliance, price, now),
     );
 
     return {
@@ -322,6 +389,7 @@ export class ApplianceService {
     category: Category,
     appliances: Appliance[],
     dailyByAppliance: Map<string, ChartPoint[]>,
+    periodsByAppliance: Map<string, { week: number | null; month: number | null }>,
     price: number,
     now: Date,
   ): CategoryReading {
@@ -340,8 +408,15 @@ export class ApplianceService {
     );
 
     const energyTodayKwh = sumDailyEnergy(daily, now);
-    const energyWeekKwh = sumDailyEnergy(daily, startOfLocalDayBefore(now, 6));
-    const energyMonthKwh = sumDailyEnergy(daily, startOfLocalMonth(now));
+    // Weekly and monthly figures come from each member's own periods, which
+    // know whether real history exists behind them. Re-deriving them from the
+    // merged daily series would turn a member's "unknown week" into a zero.
+    const energyWeekKwh = sumValues(
+      members.map((appliance) => periodsByAppliance.get(appliance.id)?.week ?? null),
+    );
+    const energyMonthKwh = sumValues(
+      members.map((appliance) => periodsByAppliance.get(appliance.id)?.month ?? null),
+    );
 
     return {
       id: category.id,
@@ -369,17 +444,29 @@ export class ApplianceService {
     const appliances = this.#store.enabledAppliances();
 
     const dailyByAppliance = new Map<string, ChartPoint[]>();
+    const periodsByAppliance = new Map<string, { week: number | null; month: number | null }>();
     for (const appliance of appliances) {
       if (!category.applianceIds.includes(appliance.id)) continue;
-      dailyByAppliance.set(appliance.id, await this.#dailyEnergy(appliance, now));
+      const periods = await this.#energyPeriods(appliance, now);
+      dailyByAppliance.set(appliance.id, periods.daily.points);
+      periodsByAppliance.set(appliance.id, { week: periods.week, month: periods.month });
     }
 
-    return this.#categoryReading(category, appliances, dailyByAppliance, price, now);
+    return this.#categoryReading(
+      category,
+      appliances,
+      dailyByAppliance,
+      periodsByAppliance,
+      price,
+      now,
+    );
   }
 
   #totals(
     readings: ApplianceReading[],
     dailySeries: ChartPoint[][],
+    weekly: (number | null)[],
+    monthly: (number | null)[],
     price: number,
     now: Date,
   ): SummaryTotals {
@@ -388,12 +475,8 @@ export class ApplianceService {
       .filter((value): value is number => value !== null);
     const energyToday = sumValues(readings.map((reading) => reading.energyTodayKwh));
 
-    const energyWeek = sumValues(
-      dailySeries.map((series) => sumDailyEnergy(series, startOfLocalDayBefore(now, 6))),
-    );
-    const energyMonth = sumValues(
-      dailySeries.map((series) => sumDailyEnergy(series, startOfLocalMonth(now))),
-    );
+    const energyWeek = sumValues(weekly);
+    const energyMonth = sumValues(monthly);
 
     // Forecast from whole days only; today is still in progress.
     const todayStart = startOfLocalDay(now).getTime();
@@ -472,16 +555,17 @@ export class ApplianceService {
 
     const price = this.#store.get().settings.electricityPricePerKwh;
     const reading = await this.#reading(appliance, price, now);
-    const daily = await this.#dailyEnergy(appliance, now);
+    const periods = await this.#energyPeriods(appliance, now);
+    const daily = periods.daily;
 
     const todayStart = startOfLocalDay(now).getTime();
-    const completeDays = daily
+    const completeDays = daily.points
       .filter((point) => point.v !== null && point.t < todayStart)
       .map((point) => point.v!);
     const forecast = forecastFromDailyTotals(completeDays, now);
 
-    const energyWeekKwh = sumDailyEnergy(daily, startOfLocalDayBefore(now, 6));
-    const energyMonthKwh = sumDailyEnergy(daily, startOfLocalMonth(now));
+    const energyWeekKwh = periods.week;
+    const energyMonthKwh = periods.month;
 
     return {
       ...reading,
@@ -494,7 +578,7 @@ export class ApplianceService {
         ? { ...forecast, estimatedYearlyCost: costOf(forecast.estimatedYearlyKwh, price) }
         : null,
       sensors: this.#diagnostics(appliance),
-      hasStatistics: daily.length > 1,
+      hasStatistics: daily.fromStatistics,
     };
   }
 
@@ -573,7 +657,7 @@ export class ApplianceService {
     if (range !== "today") {
       const daily: ChartPoint[][] = [];
       for (const appliance of appliances) {
-        daily.push(await this.#dailyEnergy(appliance, now));
+        daily.push((await this.#dailyEnergy(appliance, now)).points);
       }
       const combined = sumSeriesByBucket(daily).filter((point) => point.t >= start);
       const points = runningTotal(combined);

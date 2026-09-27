@@ -225,6 +225,27 @@ is disabled in mock mode.
   reason: an earlier `applianceIds` + `applianceNames` pair fell out of step
   as soon as a category held an id whose appliance had been removed.
 
+## Not every plug exposes a lifetime meter
+
+A SONOFF S60TPF via SonoffLAN reports `power`, `current`, `voltage`,
+`energy_day` and `energy_month` - and **no** cumulative lifetime total. With
+no `energy` entity there are no long-term statistics either, so the only
+facts available are "today" and "this month", each read straight off a
+counter.
+
+That shape drives two rules:
+
+- **Only claim what a counter actually covers.** Summing a single daily
+  reading over a week printed a confident `0.00 kWh` for six days nobody had
+  any record of. `#energyPeriods` returns null for the week in that case, and
+  the UI shows a dash. Unknown is not zero - the same rule the per-sensor
+  code follows, applied to aggregates.
+- **Use the monthly counter.** Ignoring `energy_month` meant reporting
+  `0.00 kWh` for a month the device itself said was 1.86 kWh.
+
+The mock reproduces this shape: profiles expose a monthly counter, and the
+washing machine reports mixed units.
+
 ## Diagnosing a wrong number
 
 A wrong figure is close to undiagnosable from the dashboard: "0.21" on a

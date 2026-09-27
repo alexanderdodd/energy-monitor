@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0
+
+- Appliances with a monthly energy counter now use it. Plugs that expose only
+  daily and monthly counters (no lifetime total, and so no long-term
+  statistics) reported 0.00 kWh for the month while the device itself
+  reported a real figure.
+- Periods with no history behind them now show a dash rather than 0.00 kWh.
+  A single daily counter says nothing about the previous six days, and
+  summing it over a week claimed those days were zero.
+
 ## 0.7.0
 
 - Appliance pages gained a "Sensor details" panel showing exactly what Home

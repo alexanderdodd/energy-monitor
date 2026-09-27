@@ -95,7 +95,7 @@ const PROFILES: MockProfile[] = [
 
 const VOLTAGE_AT = (t: number): number => 236 + wobble(t, 9, 1.5);
 
-type Measurement = "power" | "current" | "voltage" | "energy" | "energy_day";
+type Measurement = "power" | "current" | "voltage" | "energy" | "energy_day" | "energy_month";
 
 const MEASUREMENTS: Record<
   Measurement,
@@ -106,6 +106,7 @@ const MEASUREMENTS: Record<
   voltage: { suffix: "voltage", label: "Voltage", deviceClass: "voltage", stateClass: "measurement", unit: "V", decimals: 1 },
   energy: { suffix: "energy", label: "Energy", deviceClass: "energy", stateClass: "total_increasing", unit: "kWh", decimals: 3 },
   energy_day: { suffix: "energy_day", label: "Energy day", deviceClass: "energy", stateClass: "total", unit: "kWh", decimals: 3 },
+  energy_month: { suffix: "energy_month", label: "Energy month", deviceClass: "energy", stateClass: "total", unit: "kWh", decimals: 3 },
 };
 
 function entityId(profile: MockProfile, measurement: Measurement): string {
@@ -288,14 +289,18 @@ export class MockHaSource implements HaSource {
     const toEnergyUnit = (kwh: number) =>
       profile.energyUnit === "Wh" ? (kwh * 1_000).toFixed(1) : kwh.toFixed(3);
 
+    if (id.endsWith("_energy_month")) {
+      // Coarser steps: a month integrated minute by minute would be needless
+      // work on every refresh, and this only has to look plausible.
+      return toEnergyUnit(this.#energySince(profile, startOfMonth(t), t, 900_000));
+    }
     if (id.endsWith("_energy_day")) return toEnergyUnit(kwhToday);
     // Lifetime total: an arbitrary but stable starting point plus today.
     return toEnergyUnit(120 + kwhToday);
   }
 
   /** kWh consumed between two instants, integrated from the power curve. */
-  #energySince(profile: MockProfile, from: number, to: number): number {
-    const step = 60_000;
+  #energySince(profile: MockProfile, from: number, to: number, step = 60_000): number {
     let kwh = 0;
     for (let t = from; t < to; t += step) {
       kwh += (profile.powerAt(t) * Math.min(step, to - t)) / 3_600_000 / 1_000;
@@ -340,6 +345,13 @@ export class MockHaSource implements HaSource {
 
 function startOfDay(t: number): number {
   const date = new Date(t);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function startOfMonth(t: number): number {
+  const date = new Date(t);
+  date.setDate(1);
   date.setHours(0, 0, 0, 0);
   return date.getTime();
 }

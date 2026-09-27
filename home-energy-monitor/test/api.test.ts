@@ -459,6 +459,76 @@ describe("categories", () => {
   });
 });
 
+describe("an appliance with only vendor counters and no statistics", () => {
+  // Exactly the shape a SONOFF plug reports through SonoffLAN: daily and
+  // monthly counters, no lifetime total, and no long-term statistics yet.
+  async function configureCounterOnly(h: Harness) {
+    h.source.options.statistics = {};
+    h.source.setState("sensor.fridge_energy_day", "0.0", {
+      device_class: "energy",
+      state_class: "total_increasing",
+      unit_of_measurement: "kWh",
+    });
+    h.source.setState("sensor.fridge_energy_month", "1.86", {
+      device_class: "energy",
+      state_class: "total_increasing",
+      unit_of_measurement: "kWh",
+    });
+
+    await h.app.inject({
+      method: "PUT",
+      url: "/api/appliances",
+      payload: {
+        appliances: [
+          {
+            id: "device:dev-fridge",
+            name: "Fridge",
+            entities: {
+              power: "sensor.fridge_power",
+              energyDay: "sensor.fridge_energy_day",
+              energyMonth: "sensor.fridge_energy_month",
+            },
+            enabled: true,
+          },
+        ],
+      },
+    });
+  }
+
+  it("uses the monthly counter instead of reporting zero for the month", async () => {
+    await configureCounterOnly(current);
+    const body = (
+      await current.app.inject({ url: "/api/appliances/device:dev-fridge" })
+    ).json() as { energyMonthKwh: number; costMonth: number };
+
+    // The device says 1.86 kWh this month; reporting 0.00 contradicted it.
+    expect(body.energyMonthKwh).toBe(1.86);
+    expect(body.costMonth).toBe(0.56);
+  });
+
+  it("says the week is unknown rather than inventing a zero", async () => {
+    await configureCounterOnly(current);
+    const body = (
+      await current.app.inject({ url: "/api/appliances/device:dev-fridge" })
+    ).json() as { energyTodayKwh: number; energyWeekKwh: number | null; hasStatistics: boolean };
+
+    expect(body.hasStatistics).toBe(false);
+    // Today is known from the daily counter.
+    expect(body.energyTodayKwh).toBe(0);
+    // Six earlier days nobody has any record of must not read as 0.00.
+    expect(body.energyWeekKwh).toBeNull();
+  });
+
+  it("carries the same distinction into the household totals", async () => {
+    await configureCounterOnly(current);
+    const body = (await current.app.inject({ url: "/api/summary" })).json() as {
+      totals: { energyWeekKwh: number | null; energyMonthKwh: number | null };
+    };
+    expect(body.totals.energyWeekKwh).toBeNull();
+    expect(body.totals.energyMonthKwh).toBe(1.86);
+  });
+});
+
 describe("cumulative curves", () => {
   it("agrees with the Today figure shown above it", async () => {
     await configureFridge(current);
