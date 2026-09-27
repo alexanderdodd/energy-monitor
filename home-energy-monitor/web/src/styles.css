@@ -751,3 +751,51 @@ a:focus-visible {
   color: var(--text-muted);
   font-weight: 550;
 }
+
+.diagnostics summary {
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 620;
+  list-style: none;
+}
+
+.diagnostics summary::-webkit-details-marker { display: none; }
+
+.diagnostics summary::before {
+  content: "▸ ";
+  color: var(--text-faint);
+}
+
+.diagnostics[open] summary::before { content: "▾ "; }
+
+.diagnostics .description { margin-top: 12px; }
+
+.table-scroll { overflow-x: auto; }
+
+.diagnostics table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.diagnostics th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 6px 12px 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.diagnostics td {
+  padding: 7px 12px 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.diagnostics tr:last-child td { border-bottom: none; }
+
+.diagnostics code {
+  font-size: 12px;
+  color: var(--text-muted);
+}

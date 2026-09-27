@@ -137,6 +137,18 @@ export interface Forecast {
   estimatedYearlyCost: number | null;
 }
 
+export interface SensorDiagnostic {
+  role: EntityRole;
+  entityId: string;
+  state: string | null;
+  unit: string | null;
+  deviceClass: string | null;
+  stateClass: string | null;
+  lastChanged: string | null;
+  converted: number | null;
+  convertedUnit: string | null;
+}
+
 export interface ApplianceDetail extends ApplianceReading {
   entities: ApplianceEntities;
   energyWeekKwh: number | null;
@@ -144,6 +156,8 @@ export interface ApplianceDetail extends ApplianceReading {
   energyMonthKwh: number | null;
   costMonth: number | null;
   forecast: Forecast | null;
+  sensors: SensorDiagnostic[];
+  hasStatistics: boolean;
   currency: string;
   electricityPricePerKwh: number;
   homeAssistant: ConnectionStatus;

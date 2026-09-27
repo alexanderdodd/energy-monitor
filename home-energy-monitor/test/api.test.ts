@@ -283,6 +283,49 @@ describe("GET /api/appliances/:id", () => {
     });
   });
 
+  it("reports what each mapped sensor is actually saying", async () => {
+    await configureFridge(current);
+    const body = (
+      await current.app.inject({ url: "/api/appliances/device:dev-fridge" })
+    ).json() as {
+      sensors: {
+        role: string;
+        entityId: string;
+        state: string;
+        unit: string;
+        converted: number;
+        convertedUnit: string;
+      }[];
+    };
+
+    const power = body.sensors.find((sensor) => sensor.role === "power")!;
+    expect(power.entityId).toBe("sensor.fridge_power");
+    expect(power.state).toBe("43.2");
+    expect(power.unit).toBe("W");
+    expect(power.converted).toBe(43.2);
+    expect(power.convertedUnit).toBe("W");
+  });
+
+  it("shows the raw and converted value for a sensor reporting kW", async () => {
+    // The case that took three attempts to diagnose from the dashboard alone:
+    // a plug whose numbers look a thousand times too small.
+    current.source.setState("sensor.fridge_power", "0.0432", {
+      device_class: "power",
+      unit_of_measurement: "kW",
+      state_class: "measurement",
+    });
+    await configureFridge(current);
+
+    const body = (
+      await current.app.inject({ url: "/api/appliances/device:dev-fridge" })
+    ).json() as { sensors: { role: string; state: string; unit: string; converted: number }[] };
+
+    const power = body.sensors.find((sensor) => sensor.role === "power")!;
+    expect(power.state).toBe("0.0432");
+    expect(power.unit).toBe("kW");
+    expect(power.converted).toBeCloseTo(43.2, 6);
+  });
+
   it("404s for an unknown appliance", async () => {
     const response = await current.app.inject({ url: "/api/appliances/nope" });
     expect(response.statusCode).toBe(404);

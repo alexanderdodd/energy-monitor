@@ -116,6 +116,28 @@ export interface CumulativeResult {
   source: "statistics" | "meter" | "history";
 }
 
+/**
+ * What a mapped sensor is actually reporting, raw.
+ *
+ * Exposed because a wrong number on the dashboard is nearly impossible to
+ * diagnose from the dashboard: "0.21" could be a plug reporting kW, a plug
+ * idling at a fifth of a watt, or the wrong entity mapped to the slot, and
+ * they look identical once charted.
+ */
+export interface SensorDiagnostic {
+  role: EntityRole;
+  entityId: string;
+  /** The state exactly as Home Assistant reports it. */
+  state: string | null;
+  unit: string | null;
+  deviceClass: string | null;
+  stateClass: string | null;
+  lastChanged: string | null;
+  /** The value after unit conversion, and the unit it is now in. */
+  converted: number | null;
+  convertedUnit: string | null;
+}
+
 export interface ApplianceDetail extends ApplianceReading {
   entities: Appliance["entities"];
   energyWeekKwh: number | null;
@@ -123,6 +145,9 @@ export interface ApplianceDetail extends ApplianceReading {
   energyMonthKwh: number | null;
   costMonth: number | null;
   forecast: (Forecast & { estimatedYearlyCost: number | null }) | null;
+  sensors: SensorDiagnostic[];
+  /** True when Home Assistant has long-term statistics for the energy meter. */
+  hasStatistics: boolean;
 }
 
 /**
@@ -395,6 +420,52 @@ export class ApplianceService {
     };
   }
 
+  /** Canonical unit each measurement is converted into. */
+  static readonly #CANONICAL: Record<MeasurementKind, string> = {
+    power: "W",
+    energy: "kWh",
+    current: "A",
+    voltage: "V",
+  };
+
+  static readonly #ROLE_KINDS: Record<EntityRole, MeasurementKind> = {
+    power: "power",
+    current: "current",
+    voltage: "voltage",
+    energy: "energy",
+    energyDay: "energy",
+    energyMonth: "energy",
+  };
+
+  #diagnostics(appliance: Appliance): SensorDiagnostic[] {
+    const roles = Object.keys(ApplianceService.#ROLE_KINDS) as EntityRole[];
+
+    return roles.flatMap((role) => {
+      const entityId = appliance.entities[role];
+      if (!entityId) return [];
+
+      const kind = ApplianceService.#ROLE_KINDS[role];
+      const state = this.#source.getCachedState(entityId);
+      const unit = state?.attributes.unit_of_measurement ?? null;
+
+      return [
+        {
+          role,
+          entityId,
+          state: state?.state ?? null,
+          unit,
+          deviceClass: state?.attributes.device_class ?? null,
+          stateClass: state?.attributes.state_class ?? null,
+          lastChanged: state?.last_changed ?? null,
+          // Rounded: this is read by a person, and unit conversion leaves
+          // floating-point tails like 0.9577000000000001.
+          converted: round6(toCanonicalUnit(parseNumericState(state?.state), unit, kind)),
+          convertedUnit: ApplianceService.#CANONICAL[kind],
+        },
+      ];
+    });
+  }
+
   async getApplianceDetail(id: string, now = new Date()): Promise<ApplianceDetail | null> {
     const appliance = this.#store.getAppliance(id);
     if (!appliance) return null;
@@ -422,6 +493,8 @@ export class ApplianceService {
       forecast: forecast
         ? { ...forecast, estimatedYearlyCost: costOf(forecast.estimatedYearlyKwh, price) }
         : null,
+      sensors: this.#diagnostics(appliance),
+      hasStatistics: daily.length > 1,
     };
   }
 
@@ -626,6 +699,10 @@ export class ApplianceService {
     if (!appliance) return null;
     return buildHistory(this.#source, appliance, range, now);
   }
+}
+
+function round6(value: number | null): number | null {
+  return value === null ? null : roundTo(value, 6);
 }
 
 /** True when any appliance is a member of more than one category. */

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0
+
+- Appliance pages gained a "Sensor details" panel showing exactly what Home
+  Assistant reports for each mapped sensor: the raw state, its unit, the
+  value after conversion, and when it last changed. A figure that looks wrong
+  can now be diagnosed from the app rather than guessed at.
+
 ## 0.6.0
 
 - Fixed appliances whose sensors report kW or Wh being charted and totalled

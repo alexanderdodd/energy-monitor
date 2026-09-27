@@ -225,6 +225,16 @@ is disabled in mock mode.
   reason: an earlier `applianceIds` + `applianceNames` pair fell out of step
   as soon as a category held an id whose appliance had been removed.
 
+## Diagnosing a wrong number
+
+A wrong figure is close to undiagnosable from the dashboard: "0.21" on a
+power chart could be a plug reporting kW, a plug genuinely idling at a fifth
+of a watt, or the wrong entity mapped into the slot - all identical once
+charted. The **Sensor details** panel at the bottom of each appliance page
+shows the raw state, unit, converted value and last-changed for every mapped
+sensor. Start there, and ask for it before theorising; two rounds of
+plausible-sounding guesses were spent on one of these.
+
 ## Testing quirks
 
 - **ECharts needs a real canvas and throws in jsdom**, so component tests mock

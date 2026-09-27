@@ -5,6 +5,7 @@ import { CumulativeCard } from "../components/CumulativeCard.tsx";
 import { Stat } from "../components/Stat.tsx";
 import {
   formatCurrent,
+  formatRelativeTime,
   formatEnergy,
   formatMoney,
   formatPower,
@@ -154,6 +155,55 @@ export function ApplianceDetailPage({ id, live, streaming }: Props) {
         currency={currency}
         pricePerKwh={appliance.electricityPricePerKwh}
       />
+
+      <details className="card panel diagnostics">
+        <summary>Sensor details</summary>
+        <p className="description">
+          Exactly what Home Assistant reports for each mapped sensor. If a figure above looks
+          wrong, the answer is almost always here — the wrong entity in a slot, or a unit the app
+          has misread.
+        </p>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Measurement</th>
+                <th>Entity</th>
+                <th>Reported</th>
+                <th>Used as</th>
+                <th>Class</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {appliance.sensors.map((sensor) => (
+                <tr key={sensor.entityId}>
+                  <td>{sensor.role}</td>
+                  <td><code>{sensor.entityId}</code></td>
+                  <td>
+                    {sensor.state ?? "—"} {sensor.unit ?? ""}
+                  </td>
+                  <td>
+                    {sensor.converted === null
+                      ? "not a number"
+                      : `${sensor.converted} ${sensor.convertedUnit ?? ""}`}
+                  </td>
+                  <td className="meta">
+                    {sensor.deviceClass ?? "—"}
+                    {sensor.stateClass ? ` / ${sensor.stateClass}` : ""}
+                  </td>
+                  <td className="meta">{formatRelativeTime(sensor.lastChanged)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="meta">
+          {appliance.hasStatistics
+            ? "Home Assistant has long-term statistics for this appliance."
+            : "No long-term statistics yet, so daily totals come from the sensors directly."}
+        </p>
+      </details>
 
       <div className="card chart-card">
         <div className="chart-head">
