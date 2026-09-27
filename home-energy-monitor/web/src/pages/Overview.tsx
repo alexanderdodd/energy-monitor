@@ -76,16 +76,17 @@ export function Overview({ live, streaming }: Props) {
         <Stat
           label="Today"
           value={formatEnergy(totals.energyTodayKwh)}
-          hint={`${formatEnergy(totals.energyWeekKwh)} over 7 days`}
+          hint={formatMoney(totals.costToday, currency)}
         />
         <Stat
-          label="Estimated cost today"
-          value={formatMoney(totals.costToday, currency)}
-          hint={
-            totals.estimatedYearlyCost !== null
-              ? `≈ ${formatMoney(totals.estimatedYearlyCost, currency)} per year`
-              : undefined
-          }
+          label="This week"
+          value={formatEnergy(totals.energyWeekKwh)}
+          hint={formatMoney(totals.costWeek, currency)}
+        />
+        <Stat
+          label="This month"
+          value={formatEnergy(totals.energyMonthKwh)}
+          hint={formatMoney(totals.costMonth, currency)}
         />
       </div>
 

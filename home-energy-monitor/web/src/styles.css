@@ -741,3 +741,13 @@ a:focus-visible {
   gap: 14px;
   flex-wrap: wrap;
 }
+
+.category-card .figures.secondary {
+  color: var(--text-faint);
+  margin-top: -6px;
+}
+
+.category-card .figures.secondary .cost {
+  color: var(--text-muted);
+  font-weight: 550;
+}

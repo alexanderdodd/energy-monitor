@@ -148,6 +148,48 @@ export function downsample(
   return result;
 }
 
+/**
+ * Sample a series that reports a *level* rather than a rate, holding the last
+ * reading forward across each bucket.
+ *
+ * A vendor "energy today" counter is already a running total for the day, so
+ * its recorded history is the cumulative curve - it only needs putting on a
+ * regular grid. Buckets before the first reading stay null rather than
+ * assuming zero.
+ */
+export function holdLevel(
+  points: HistoryPoint[],
+  start: number,
+  end: number,
+  bucketMs: number,
+): ChartPoint[] {
+  const bucketCount = bucketCountFor(start, end, bucketMs);
+  const result: ChartPoint[] = new Array(bucketCount);
+
+  let index = 0;
+  let current: number | null = null;
+
+  for (let i = 0; i < bucketCount; i += 1) {
+    const bucketStart = start + i * bucketMs;
+    // Each bucket carries the level as at its *end*, the same convention
+    // cumulativeEnergy uses: the running total through that interval. Taking
+    // the level at the start would leave the newest reading off the end of
+    // the chart, which on a live dashboard is exactly the value being
+    // watched.
+    const bucketEnd = Math.min(bucketStart + bucketMs, end);
+    // Home Assistant includes the state as it was at the start of the
+    // window, so readings from before `start` legitimately seed the level.
+    while (index < points.length && points[index]!.t <= bucketEnd) {
+      const value = parseNumericState(points[index]!.s);
+      if (value !== null) current = value;
+      index += 1;
+    }
+    result[i] = { t: bucketStart, v: current };
+  }
+
+  return result;
+}
+
 /** Watt-milliseconds to kilowatt-hours. */
 const WATT_MS_PER_KWH = 3_600_000 * 1_000;
 

@@ -22,7 +22,9 @@ const SUMMARY = {
     energyTodayKwh: 4.12,
     costToday: 1.29,
     energyWeekKwh: 28.4,
+    costWeek: 8.52,
     energyMonthKwh: 120,
+    costMonth: 36,
     estimatedMonthlyKwh: 124,
     estimatedYearlyKwh: 1500,
     estimatedYearlyCost: 450,
@@ -216,7 +218,12 @@ describe("Overview", () => {
     await screen.findByText("257 W");
     expect(within(stat("Live consumption")).getByText("257 W")).toBeInTheDocument();
     expect(within(stat("Today")).getByText("4.12 kWh")).toBeInTheDocument();
-    expect(within(stat("Estimated cost today")).getByText("€1.29")).toBeInTheDocument();
+    // Cost sits under each energy figure rather than in a column of its own.
+    expect(within(stat("Today")).getByText("€1.29")).toBeInTheDocument();
+    expect(within(stat("This week")).getByText("28.40 kWh")).toBeInTheDocument();
+    expect(within(stat("This week")).getByText("€8.52")).toBeInTheDocument();
+    expect(within(stat("This month")).getByText("120 kWh")).toBeInTheDocument();
+    expect(within(stat("This month")).getByText("€36.00")).toBeInTheDocument();
 
     const fridge = applianceCard(/Fridge/);
     expect(within(fridge).getByText("43 W")).toBeInTheDocument();

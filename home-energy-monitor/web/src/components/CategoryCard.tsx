@@ -42,6 +42,14 @@ export function CategoryCard({ category, currency, livePowerW }: Props) {
         <span className="energy">{formatEnergy(category.energyTodayKwh)} today</span>
         <span className="cost">{formatMoney(category.costToday, currency)}</span>
       </span>
+      <span className="figures secondary">
+        <span className="energy">{formatEnergy(category.energyWeekKwh)} this week</span>
+        <span className="cost">{formatMoney(category.costWeek, currency)}</span>
+      </span>
+      <span className="figures secondary">
+        <span className="energy">{formatEnergy(category.energyMonthKwh)} this month</span>
+        <span className="cost">{formatMoney(category.costMonth, currency)}</span>
+      </span>
 
       <span className="footer">
         <TrendBadge trend={category.trend} />

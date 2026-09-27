@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   costOf,
   cumulativeEnergy,
+  holdLevel,
   daysInMonth,
   downsample,
   forecastFromDailyTotals,
@@ -247,5 +248,63 @@ describe("cumulativeEnergy", () => {
     const result = cumulativeEnergy([[{ t: -10 * hour, s: "1000" }]], 0, hour, bucket);
     // The reading still holds into the window, so it counts from the start.
     expect(result.at(-1)!.v).toBeCloseTo(1, 6);
+  });
+});
+
+describe("holdLevel", () => {
+  const bucket = 60_000;
+
+  it("holds the last reading forward across buckets", () => {
+    // Each bucket reports the level as at its end, so the reading at 2*bucket
+    // lands in the bucket that ends there.
+    const result = holdLevel(
+      [
+        { t: 0, s: "0.5" },
+        { t: 2 * bucket, s: "1.25" },
+      ],
+      0,
+      4 * bucket,
+      bucket,
+    );
+    expect(result.map((point) => point.v)).toEqual([0.5, 1.25, 1.25, 1.25]);
+  });
+
+  it("stays null until the first reading rather than assuming zero", () => {
+    const result = holdLevel([{ t: 2 * bucket, s: "3" }], 0, 4 * bucket, bucket);
+    expect(result.map((point) => point.v)).toEqual([null, 3, 3, 3]);
+  });
+
+  it("includes a reading that arrives inside the final bucket", () => {
+    // The newest value is what a live dashboard is being watched for; it must
+    // not be left off the end of the chart.
+    const result = holdLevel(
+      [
+        { t: 0, s: "1" },
+        { t: 3 * bucket + 30_000, s: "9" },
+      ],
+      0,
+      4 * bucket,
+      bucket,
+    );
+    expect(result.at(-1)!.v).toBe(9);
+  });
+
+  it("is seeded by the reading Home Assistant reports at the window start", () => {
+    const result = holdLevel([{ t: -10 * bucket, s: "2" }], 0, 2 * bucket, bucket);
+    expect(result.map((point) => point.v)).toEqual([2, 2]);
+  });
+
+  it("carries the level across an unavailable stretch", () => {
+    const result = holdLevel(
+      [
+        { t: 0, s: "1" },
+        { t: bucket, s: "unavailable" },
+        { t: 3 * bucket, s: "4" },
+      ],
+      0,
+      4 * bucket,
+      bucket,
+    );
+    expect(result.map((point) => point.v)).toEqual([1, 1, 4, 4]);
   });
 });

@@ -32,6 +32,12 @@ const STATES: HaState[] = [
     unit_of_measurement: "kWh",
     friendly_name: "Fridge Energy",
   }),
+  sensor("sensor.fridge_energy_day", "2.5", {
+    device_class: "energy",
+    state_class: "total",
+    unit_of_measurement: "kWh",
+    friendly_name: "Fridge Energy day",
+  }),
   sensor("sensor.dryer_power", "unavailable", {
     device_class: "power",
     state_class: "measurement",
@@ -44,6 +50,7 @@ const ENTITY_REGISTRY = [
   { entity_id: "sensor.fridge_power", device_id: "dev-fridge" },
   { entity_id: "sensor.fridge_voltage", device_id: "dev-fridge" },
   { entity_id: "sensor.fridge_energy", device_id: "dev-fridge" },
+  { entity_id: "sensor.fridge_energy_day", device_id: "dev-fridge" },
   { entity_id: "sensor.dryer_power", device_id: "dev-dryer" },
 ];
 
@@ -80,6 +87,10 @@ async function harness(enforceIngress = false): Promise<Harness> {
     },
     history: {
       "sensor.fridge_power": [{ t: Date.now() - 3_600_000, s: "43.2" }],
+      "sensor.fridge_energy_day": [
+        { t: todayStart + 3_600_000, s: "0.9" },
+        { t: Date.now() - 60_000, s: "2.5" },
+      ],
     },
   });
 
@@ -114,6 +125,7 @@ async function configureFridge(h: Harness) {
             power: "sensor.fridge_power",
             voltage: "sensor.fridge_voltage",
             energy: "sensor.fridge_energy",
+            energyDay: "sensor.fridge_energy_day",
           },
           enabled: true,
         },
@@ -198,6 +210,23 @@ describe("appliance configuration", () => {
 });
 
 describe("GET /api/summary", () => {
+  it("reports weekly and monthly energy with their costs", async () => {
+    await configureFridge(current);
+    const body = (await current.app.inject({ url: "/api/summary" })).json() as {
+      totals: {
+        energyWeekKwh: number;
+        costWeek: number;
+        energyMonthKwh: number;
+        costMonth: number;
+      };
+    };
+    // Yesterday's 0.8 plus today's 0.62, at the default 0.30 per kWh.
+    expect(body.totals.energyWeekKwh).toBeCloseTo(1.42, 3);
+    expect(body.totals.costWeek).toBe(0.43);
+    expect(body.totals.energyMonthKwh).toBeCloseTo(1.42, 3);
+    expect(body.totals.costMonth).toBe(0.43);
+  });
+
   it("totals live power, energy and cost", async () => {
     await configureFridge(current);
     const response = await current.app.inject({ url: "/api/summary" });
@@ -407,6 +436,56 @@ describe("cumulative curves", () => {
     expect(values.at(-1)).toBe(curve.totalKwh);
   });
 
+  it("shows a 7d curve even when only the daily fallback has data", async () => {
+    // Reproduces the category page reporting "Nothing recorded yet" for 7d
+    // while the totals beside it showed a week's worth of energy.
+    await configureFridge(current);
+    await current.app.inject({
+      method: "PUT",
+      url: "/api/categories",
+      payload: { categories: [{ name: "Washing", applianceIds: ["device:dev-fridge"] }] },
+    });
+
+    const summary = (await current.app.inject({ url: "/api/summary" })).json() as {
+      totals: { energyWeekKwh: number };
+    };
+    const curve = (
+      await current.app.inject({ url: "/api/categories/washing/cumulative?range=7d" })
+    ).json() as { points: unknown[]; totalKwh: number };
+
+    expect(curve.points.length).toBeGreaterThan(0);
+    // The curve and the "this week" figure must be the same number.
+    expect(curve.totalKwh).toBeCloseTo(summary.totals.energyWeekKwh, 3);
+  });
+
+  it("sums every member of a category, not just the first", async () => {
+    await configureFridge(current);
+    await current.app.inject({
+      method: "PUT",
+      url: "/api/categories",
+      payload: {
+        categories: [
+          { name: "Washing", applianceIds: ["device:dev-fridge", "device:dev-dryer"] },
+        ],
+      },
+    });
+
+    const category = (
+      await current.app.inject({ url: "/api/categories/washing/cumulative?range=7d" })
+    ).json() as { totalKwh: number };
+    const fridge = (
+      await current.app.inject({ url: "/api/appliances/device:dev-fridge/cumulative?range=7d" })
+    ).json() as { totalKwh: number };
+    const dryer = (
+      await current.app.inject({ url: "/api/appliances/device:dev-dryer/cumulative?range=7d" })
+    ).json() as { totalKwh: number | null };
+
+    // The dryer contributes nothing, so the category equals the fridge - that
+    // is a correct sum, not a dropped member.
+    expect(dryer.totalKwh).toBeNull();
+    expect(category.totalKwh).toBeCloseTo(fridge.totalKwh, 3);
+  });
+
   it("accumulates across days for the longer ranges", async () => {
     await configureFridge(current);
     const response = await current.app.inject({ url: "/api/summary/cumulative?range=7d" });
@@ -420,9 +499,24 @@ describe("cumulative curves", () => {
     expect(body.points.at(0)!.v).toBeCloseTo(0.8, 3);
   });
 
-  it("falls back to integrating power when no statistics exist yet", async () => {
+  it("follows the vendor daily meter when statistics are missing", async () => {
     await configureFridge(current);
     current.source.options.statistics = {};
+
+    const response = await current.app.inject({ url: "/api/summary/cumulative" });
+    const body = response.json() as { source: string; totalKwh: number };
+    // The daily counter is already a running total, and it is what the
+    // headline figure falls back to, so the two must agree.
+    expect(body.source).toBe("meter");
+    expect(body.totalKwh).toBe(2.5);
+  });
+
+  it("integrates power only when there is no meter either", async () => {
+    await configureFridge(current);
+    current.source.options.statistics = {};
+    current.source.options.history = {
+      "sensor.fridge_power": [{ t: todayStart, s: "100" }],
+    };
 
     const response = await current.app.inject({ url: "/api/summary/cumulative" });
     const body = response.json() as { source: string; totalKwh: number };

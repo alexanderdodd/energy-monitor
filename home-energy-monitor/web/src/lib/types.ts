@@ -108,7 +108,9 @@ export interface SummaryTotals {
   energyTodayKwh: number | null;
   costToday: number | null;
   energyWeekKwh: number | null;
+  costWeek: number | null;
   energyMonthKwh: number | null;
+  costMonth: number | null;
   estimatedMonthlyKwh: number | null;
   estimatedYearlyKwh: number | null;
   estimatedYearlyCost: number | null;
@@ -138,7 +140,9 @@ export interface Forecast {
 export interface ApplianceDetail extends ApplianceReading {
   entities: ApplianceEntities;
   energyWeekKwh: number | null;
+  costWeek: number | null;
   energyMonthKwh: number | null;
+  costMonth: number | null;
   forecast: Forecast | null;
   currency: string;
   electricityPricePerKwh: number;
@@ -171,7 +175,7 @@ export interface CumulativeResult {
   points: ChartPoint[];
   totalKwh: number | null;
   /** "history" means the curve covers only what the recorder still holds. */
-  source: "history" | "statistics";
+  source: "statistics" | "meter" | "history";
 }
 
 export interface Settings {

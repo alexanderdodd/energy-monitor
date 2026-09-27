@@ -5,6 +5,7 @@ import type { ConfigStore } from "../config/store.ts";
 import {
   costOf,
   cumulativeEnergy,
+  holdLevel,
   forecastFromDailyTotals,
   parseNumericState,
   roundTo,
@@ -63,7 +64,9 @@ export interface SummaryTotals {
   energyTodayKwh: number | null;
   costToday: number | null;
   energyWeekKwh: number | null;
+  costWeek: number | null;
   energyMonthKwh: number | null;
+  costMonth: number | null;
   estimatedMonthlyKwh: number | null;
   estimatedYearlyKwh: number | null;
   estimatedYearlyCost: number | null;
@@ -104,17 +107,20 @@ export interface CumulativeResult {
   points: ChartPoint[];
   totalKwh: number | null;
   /**
-   * Where the curve came from. "history" integrates the power sensor and is
-   * available immediately; "statistics" accumulates Home Assistant's daily
-   * totals, which only exist after a full day has been recorded.
+   * Where the curve came from. "statistics" accumulates Home Assistant's own
+   * energy statistics; "meter" follows a vendor "energy today" counter, which
+   * is already a running total; "history" integrates the power sensor and is
+   * the last resort, covering only what the recorder still holds.
    */
-  source: "history" | "statistics";
+  source: "statistics" | "meter" | "history";
 }
 
 export interface ApplianceDetail extends ApplianceReading {
   entities: Appliance["entities"];
   energyWeekKwh: number | null;
+  costWeek: number | null;
   energyMonthKwh: number | null;
+  costMonth: number | null;
   forecast: (Forecast & { estimatedYearlyCost: number | null }) | null;
 }
 
@@ -379,7 +385,9 @@ export class ApplianceService {
       energyTodayKwh: energyToday,
       costToday: costOf(energyToday, price),
       energyWeekKwh: energyWeek,
+      costWeek: costOf(energyWeek, price),
       energyMonthKwh: energyMonth,
+      costMonth: costOf(energyMonth, price),
       estimatedMonthlyKwh: forecast?.estimatedMonthlyKwh ?? null,
       estimatedYearlyKwh: forecast?.estimatedYearlyKwh ?? null,
       estimatedYearlyCost: costOf(forecast?.estimatedYearlyKwh ?? null, price),
@@ -400,11 +408,16 @@ export class ApplianceService {
       .map((point) => point.v!);
     const forecast = forecastFromDailyTotals(completeDays, now);
 
+    const energyWeekKwh = sumDailyEnergy(daily, startOfLocalDayBefore(now, 6));
+    const energyMonthKwh = sumDailyEnergy(daily, startOfLocalMonth(now));
+
     return {
       ...reading,
       entities: appliance.entities,
-      energyWeekKwh: sumDailyEnergy(daily, startOfLocalDayBefore(now, 6)),
-      energyMonthKwh: sumDailyEnergy(daily, startOfLocalMonth(now)),
+      energyWeekKwh,
+      costWeek: costOf(energyWeekKwh, price),
+      energyMonthKwh,
+      costMonth: costOf(energyMonthKwh, price),
       forecast: forecast
         ? { ...forecast, estimatedYearlyCost: costOf(forecast.estimatedYearlyKwh, price) }
         : null,
@@ -454,11 +467,25 @@ export class ApplianceService {
         ? startOfLocalDay(now).getTime()
         : startOfLocalDayBefore(now, (range === "7d" ? 7 : 30) - 1).getTime();
 
+    // Longer ranges accumulate the very same daily figures behind the "this
+    // week" and "this month" totals, fallbacks included. Reading raw
+    // statistics here instead left the curve empty on installs whose
+    // statistics have not been generated yet, while the totals beside it
+    // showed numbers - the chart said "nothing recorded" about a week the
+    // page had just summarised.
+    if (range !== "today") {
+      const daily: ChartPoint[][] = [];
+      for (const appliance of appliances) {
+        daily.push(await this.#dailyEnergy(appliance, now));
+      }
+      const combined = sumSeriesByBucket(daily).filter((point) => point.t >= start);
+      const points = runningTotal(combined);
+      return { range, start, end, points, totalKwh: points.at(-1)?.v ?? null, source: "statistics" };
+    }
+
     // Finer buckets first: a day of five-minute statistics draws a far more
     // readable curve than 24 hourly steps.
-    const periods: StatisticsPeriod[] = range === "today" ? ["5minute", "hour"] : ["day"];
-
-    for (const period of periods) {
+    for (const period of ["5minute", "hour"] as StatisticsPeriod[]) {
       const series = await this.#energyStatistics(appliances, new Date(start), new Date(end), period);
       const combined = sumSeriesByBucket(series).filter((point) => point.t >= start);
       const points = runningTotal(combined);
@@ -476,9 +503,23 @@ export class ApplianceService {
       source: "statistics",
     };
 
-    // Only today can fall back to power: replaying weeks of raw states to
-    // integrate them would be far too much work for a Raspberry Pi.
-    if (range !== "today") return empty;
+    // A vendor "energy today" counter is already the curve we want, and it is
+    // what the headline figure falls back to as well - so following it here
+    // keeps the chart and the number in agreement.
+    const meterIds = appliances
+      .map((appliance) => appliance.entities.energyDay)
+      .filter((entityId): entityId is string => entityId !== undefined);
+
+    if (meterIds.length > 0) {
+      const meterHistory = await this.#source.getHistory(meterIds, new Date(start), new Date(end));
+      const levels = meterIds.map((entityId) =>
+        holdLevel(meterHistory[entityId] ?? [], start, end, CUMULATIVE_BUCKET_MS),
+      );
+      const points = sumSeriesByBucket(levels);
+      if (points.some((point) => point.v !== null)) {
+        return { range, start, end, points, totalKwh: points.at(-1)?.v ?? null, source: "meter" };
+      }
+    }
 
     const entityIds = this.#powerEntities(appliances);
     if (entityIds.length === 0) return empty;

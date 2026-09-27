@@ -79,7 +79,10 @@ export function ApplianceDetailPage({ id, live, streaming }: Props) {
         <Stat label="Voltage" value={available ? formatVoltage(voltageV) : "—"} />
         <Stat label="Today" value={formatEnergy(appliance.energyTodayKwh)} />
         <Stat label="Today cost" value={formatMoney(appliance.costToday, currency)} />
-        <Stat label="Last 7 days" value={formatEnergy(appliance.energyWeekKwh)} />
+        <Stat label="This week" value={formatEnergy(appliance.energyWeekKwh)} />
+        <Stat label="Week cost" value={formatMoney(appliance.costWeek, currency)} />
+        <Stat label="This month" value={formatEnergy(appliance.energyMonthKwh)} />
+        <Stat label="Month cost" value={formatMoney(appliance.costMonth, currency)} />
       </div>
 
       {appliance.forecast ? (
