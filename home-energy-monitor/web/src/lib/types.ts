@@ -213,6 +213,26 @@ export interface CompareResult {
   currency: string;
 }
 
+export type TrendPeriod = "day" | "week" | "month";
+
+export interface TrendSeries {
+  id: string;
+  name: string;
+  points: (number | null)[];
+  changePercent: number | null;
+}
+
+export interface TrendResult {
+  scope: CompareScope;
+  period: TrendPeriod;
+  buckets: number[];
+  /** The period underway, which is only part finished. */
+  inProgressFrom: number | null;
+  series: TrendSeries[];
+  currency: string;
+  electricityPricePerKwh: number;
+}
+
 export interface Settings {
   electricityPricePerKwh: number;
   currency: string;

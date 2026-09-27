@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { alignCumulative, runningTotal, sumSeriesByBucket, trendOverWindows } from "../server/src/appliances/calculations.ts";
+import {
+  alignByBucket,
+  alignCumulative,
+  groupByPeriod,
+  runningTotal,
+  sumSeriesByBucket,
+  trendOverWindows,
+} from "../server/src/appliances/calculations.ts";
 import { hasOverlap } from "../server/src/appliances/service.ts";
 import { sanitizeConfig, slugify } from "../server/src/config/store.ts";
 
@@ -245,5 +252,69 @@ describe("alignCumulative", () => {
 
   it("returns an empty axis when nothing was recorded", () => {
     expect(alignCumulative([])).toEqual({ buckets: [], values: [] });
+  });
+});
+
+describe("groupByPeriod", () => {
+  /** Local midnight, `offset` days from 1 June 2026 (a Monday). */
+  const d = (offset: number) => {
+    const date = new Date(2026, 5, 1);
+    date.setDate(date.getDate() + offset);
+    return date.getTime();
+  };
+
+  const week = [
+    { t: d(0), v: 1 },
+    { t: d(1), v: 2 },
+    { t: d(6), v: 3 },
+    { t: d(7), v: 4 }, // the following Monday
+  ];
+
+  it("leaves daily figures alone, in time order", () => {
+    const result = groupByPeriod([{ t: d(1), v: 2 }, { t: d(0), v: 1 }], "day");
+    expect(result.map((point) => point.t)).toEqual([d(0), d(1)]);
+  });
+
+  it("sums into weeks beginning on Monday", () => {
+    const result = groupByPeriod(week, "week");
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ t: d(0), v: 6 }); // Mon-Sun
+    expect(result[1]).toEqual({ t: d(7), v: 4 });
+  });
+
+  it("sums into calendar months", () => {
+    const result = groupByPeriod(
+      [
+        { t: d(0), v: 1 },
+        { t: d(29), v: 2 },
+        { t: d(35), v: 5 }, // into July
+      ],
+      "month",
+    );
+    expect(result).toHaveLength(2);
+    expect(result[0]!.v).toBe(3);
+    expect(result[1]!.v).toBe(5);
+  });
+
+  it("ignores days with no figure rather than counting them as zero", () => {
+    const result = groupByPeriod([{ t: d(0), v: null }, { t: d(1), v: 2 }], "week");
+    expect(result).toEqual([{ t: d(0), v: 2 }]);
+  });
+});
+
+describe("alignByBucket", () => {
+  it("does not carry a period's figure into the next", () => {
+    const { buckets, values } = alignByBucket([
+      [
+        { t: 1, v: 5 },
+        { t: 3, v: 7 },
+      ],
+      [{ t: 2, v: 9 }],
+    ]);
+
+    expect(buckets).toEqual([1, 2, 3]);
+    // Period 2 has no figure for the first series; that is not 5 again.
+    expect(values[0]).toEqual([5, null, 7]);
+    expect(values[1]).toEqual([null, 9, null]);
   });
 });

@@ -156,6 +156,18 @@ const COMPARE = {
   currency: "EUR",
 };
 
+const TREND = {
+  scope: "appliances",
+  period: "day",
+  buckets: [1789900000000, 1790000000000],
+  series: [
+    { id: "device:fridge", name: "Fridge", points: [0.8, 0.62], changePercent: -22.4 },
+    { id: "device:dryer", name: "Dryer", points: [1.0, 1.2], changePercent: 20 },
+  ],
+  currency: "EUR",
+  electricityPricePerKwh: 0.3,
+};
+
 const APPLIANCES = {
   appliances: [
     {
@@ -217,6 +229,7 @@ beforeEach(() => {
     // Match the more specific paths first: "api/summary/cumulative" also
     // contains "api/summary".
     if (url.includes("/api/compare")) return respond(COMPARE);
+    if (url.includes("/api/trend")) return respond(TREND);
     if (url.includes("/cumulative")) return respond(CUMULATIVE);
     if (url.includes("/api/summary")) return respond(SUMMARY);
     if (url.includes("/api/settings")) return respond(SETTINGS);
@@ -400,6 +413,7 @@ describe("Energy today curve", () => {
       const url = String(input);
       requests.push({ url, init });
       if (url.includes("/api/compare")) return respond(COMPARE);
+      if (url.includes("/api/trend")) return respond(TREND);
       if (url.includes("/cumulative")) return respond({ ...CUMULATIVE, source: "history" });
       if (url.includes("/api/summary")) return respond(SUMMARY);
       if (url.includes("/api/settings")) return respond(SETTINGS);
@@ -433,6 +447,7 @@ describe("Energy today curve", () => {
       const url = String(input);
       requests.push({ url, init });
       if (url.includes("/api/compare")) return respond(COMPARE);
+      if (url.includes("/api/trend")) return respond(TREND);
       if (url.includes("/cumulative")) {
         return respond({ range: "today", start: 0, end: 0, points: [], totalKwh: null, source: "statistics" });
       }
@@ -445,7 +460,11 @@ describe("Energy today curve", () => {
     });
 
     render(<App />);
-    expect(await screen.findByText("Nothing recorded yet.")).toBeInTheDocument();
+    const heading = await screen.findByRole("heading", { name: "Energy used" });
+    const card = heading.closest(".chart-card") as HTMLElement;
+    await waitFor(() =>
+      expect(within(card).getByText("Nothing recorded yet.")).toBeInTheDocument(),
+    );
   });
 });
 
@@ -509,6 +528,56 @@ describe("Compare", () => {
     expect(within(card).getByTestId("comparison-chart")).toHaveAttribute("data-view", "share");
     // The data is the same; only the drawing changes.
     expect(requests.length).toBe(before);
+  });
+});
+
+describe("Usage by period", () => {
+  function trendCard(): HTMLElement {
+    const heading = screen.getByRole("heading", { name: "Usage by period" });
+    return heading.closest(".chart-card") as HTMLElement;
+  }
+
+  it("shows each series with its latest period and direction of travel", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Usage by period" });
+
+    const card = trendCard();
+    await waitFor(() => expect(within(card).getByTestId("comparison-chart")).toBeInTheDocument());
+
+    const legend = within(card).getByRole("list");
+    expect(within(legend).getByText("Fridge")).toBeInTheDocument();
+    // The latest period's own figure, not a running total.
+    expect(within(legend).getByText("0.62 kWh")).toBeInTheDocument();
+    // Falling use points down; rising points up.
+    expect(within(legend).getByText(/▼ 22%/)).toBeInTheDocument();
+    expect(within(legend).getByText(/▲ 20%/)).toBeInTheDocument();
+  });
+
+  it("defaults to grouped bars and can switch to lines", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Usage by period" });
+
+    const card = trendCard();
+    await waitFor(() =>
+      expect(within(card).getByTestId("comparison-chart")).toHaveAttribute("data-view", "grouped"),
+    );
+
+    await user.click(within(card).getByRole("button", { name: "Lines" }));
+    expect(within(card).getByTestId("comparison-chart")).toHaveAttribute("data-view", "lines");
+  });
+
+  it("refetches when the period changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Usage by period" });
+
+    await user.click(within(trendCard()).getByRole("button", { name: "Weekly" }));
+    await waitFor(() =>
+      expect(requests.some((r) => r.url.includes("api/trend?scope=appliances&period=week"))).toBe(
+        true,
+      ),
+    );
   });
 });
 

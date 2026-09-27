@@ -6,6 +6,7 @@ import type { HaSource } from "../ha/types.ts";
 import {
   isCompareScope,
   isCumulativeRange,
+  isTrendPeriod,
   type ApplianceService,
   type CumulativeRange,
 } from "../appliances/service.ts";
@@ -209,6 +210,26 @@ export function registerApiRoutes(app: FastifyInstance, deps: ApiDependencies): 
         return await service.compare(scope, range);
       } catch (error) {
         log.warning(`Could not build the comparison: ${(error as Error).message}`);
+        return reply.code(503).send({ error: "Could not reach Home Assistant" });
+      }
+    },
+  );
+
+  app.get<{ Querystring: { scope?: string; period?: string } }>(
+    "/api/trend",
+    async (request, reply) => {
+      const scope = request.query.scope ?? "appliances";
+      const period = request.query.period ?? "day";
+      if (!isCompareScope(scope)) {
+        return reply.code(400).send({ error: "scope must be appliances or categories" });
+      }
+      if (!isTrendPeriod(period)) {
+        return reply.code(400).send({ error: "period must be one of day, week, month" });
+      }
+      try {
+        return await service.trend(scope, period);
+      } catch (error) {
+        log.warning(`Could not build the trend: ${(error as Error).message}`);
         return reply.code(503).send({ error: "Could not reach Home Assistant" });
       }
     },

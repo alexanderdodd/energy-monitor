@@ -16,7 +16,7 @@ echarts.use([
   CanvasRenderer,
 ]);
 
-export type ComparisonView = "lines" | "bars" | "share";
+export type ComparisonView = "lines" | "bars" | "share" | "grouped";
 
 export interface ComparisonSeries {
   id: string;
@@ -31,7 +31,23 @@ interface Props {
   view: ComparisonView;
   buckets: number[];
   series: ComparisonSeries[];
+  /** How to label the time axis: a clock range, or whole days/weeks/months. */
   range: string;
+}
+
+/** Axis and tooltip label for a bucket, given what the axis represents. */
+function bucketLabel(timestamp: number, range: string): string {
+  const date = new Date(timestamp);
+  if (range === "month") {
+    return date.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+  }
+  if (range === "week") {
+    return `w/c ${date.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
+  }
+  if (range === "day") {
+    return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  }
+  return formatTooltipTime(timestamp, range);
 }
 
 function readTheme() {
@@ -99,7 +115,7 @@ export default function ComparisonChart({ view, buckets, series, range }: Props)
                 seriesName?: string;
                 value?: number | null;
               }[];
-              const heading = formatTooltipTime(Number(points[0]?.axisValue), range);
+              const heading = bucketLabel(Number(points[0]?.axisValue), range);
               const rows = points
                 .filter((point) => point.value !== null && point.value !== undefined)
                 .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
@@ -120,7 +136,7 @@ export default function ComparisonChart({ view, buckets, series, range }: Props)
               color: theme.axis,
               fontSize: 11,
               hideOverlap: true,
-              formatter: (value: string) => formatTooltipTime(Number(value), range).split(",")[0],
+              formatter: (value: string) => bucketLabel(Number(value), range).split(",")[0],
             },
             axisLine: { lineStyle: { color: theme.split } },
             axisTick: { show: false },
@@ -140,6 +156,70 @@ export default function ComparisonChart({ view, buckets, series, range }: Props)
             symbolSize: 8,
             connectNulls: false,
             lineStyle: { width: 2 },
+          })),
+        },
+        { notMerge: true },
+      );
+      return;
+    }
+
+    if (view === "grouped") {
+      instance.setOption(
+        {
+          animation: false,
+          color: colored.map((item) => item.color),
+          grid: { top: 16, right: 16, bottom: 24, left: 56 },
+          tooltip: {
+            ...tooltip,
+            trigger: "axis",
+            axisPointer: { type: "shadow" },
+            formatter: (params: unknown) => {
+              const bars = (Array.isArray(params) ? params : [params]) as {
+                axisValue?: string | number;
+                marker?: string;
+                seriesName?: string;
+                value?: number | null;
+              }[];
+              const heading = bucketLabel(Number(bars[0]?.axisValue), range);
+              const rows = bars
+                .filter((bar) => bar.value !== null && bar.value !== undefined)
+                .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+                .map(
+                  (bar) =>
+                    `${bar.marker ?? ""} ${bar.seriesName ?? ""} &nbsp; <b>${formatEnergy(
+                      bar.value ?? null,
+                    )}</b>`,
+                )
+                .join("<br>");
+              return `${heading}<br>${rows}`;
+            },
+          },
+          xAxis: {
+            type: "category",
+            data: buckets,
+            axisLabel: {
+              color: theme.axis,
+              fontSize: 11,
+              hideOverlap: true,
+              formatter: (value: string) => bucketLabel(Number(value), range),
+            },
+            axisLine: { lineStyle: { color: theme.split } },
+            axisTick: { show: false },
+          },
+          yAxis: {
+            type: "value",
+            name: "kWh",
+            nameTextStyle: { color: theme.axis, fontSize: 11, align: "right" },
+            axisLabel: { color: theme.axis, fontSize: 11 },
+            splitLine: { lineStyle: { color: theme.split } },
+          },
+          series: colored.map((item) => ({
+            type: "bar",
+            name: item.name,
+            data: item.points,
+            barMaxWidth: 26,
+            // A 2px gap in the surface colour keeps adjacent bars apart.
+            itemStyle: { borderRadius: [4, 4, 0, 0], borderColor: theme.surface, borderWidth: 2 },
           })),
         },
         { notMerge: true },

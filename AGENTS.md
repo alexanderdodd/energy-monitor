@@ -264,6 +264,23 @@ That shape drives two rules:
 The mock reproduces this shape: profiles expose a monthly counter, and the
 washing machine reports mixed units.
 
+## Two comparisons, two questions
+
+- **Compare** (`/api/compare`) shows *running totals within one range* - who
+  used the most today, this week, this month.
+- **Usage by period** (`/api/trend`) shows *each period's own figure* - is an
+  appliance's use rising or falling.
+
+They must not be conflated: the first carries values forward across buckets,
+the second must never do so (`alignCumulative` vs `alignByBucket`).
+
+Partial periods are the trap in the second. Today measured against a whole
+yesterday always reads as a fall, and a month only half inside the data
+window towered over a full one at +575%. So: buckets whose period began
+before the window are dropped, the period underway is reported separately as
+`inProgressFrom`, and the change figure uses only the last two **complete**
+periods.
+
 ## Chart colour is computed, not chosen
 
 `web/src/lib/palette.ts` holds a categorical palette that was **validated, not

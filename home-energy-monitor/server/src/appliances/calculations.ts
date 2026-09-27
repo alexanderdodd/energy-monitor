@@ -442,6 +442,66 @@ export function alignCumulative(series: ChartPoint[][]): {
   return { buckets, values };
 }
 
+export type BucketPeriod = "day" | "week" | "month";
+
+/** Local-time midnight on the Monday of the week containing `date`. */
+export function startOfLocalWeek(date: Date): Date {
+  const start = startOfLocalDay(date);
+  // getDay() is 0 for Sunday; treat Monday as the first day.
+  const offset = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - offset);
+  return start;
+}
+
+/**
+ * Roll daily totals up into days, weeks or calendar months.
+ *
+ * Unlike a running total, each bucket is that period's own consumption - the
+ * shape needed to see whether an appliance's use is rising or falling. A
+ * bucket with no contributing day stays absent rather than reading zero.
+ */
+export function groupByPeriod(points: ChartPoint[], period: BucketPeriod): ChartPoint[] {
+  if (period === "day") {
+    return [...points].sort((a, b) => a.t - b.t);
+  }
+
+  const startOf = period === "week" ? startOfLocalWeek : startOfLocalMonth;
+  const totals = new Map<number, number>();
+
+  for (const point of points) {
+    if (point.v === null) continue;
+    const bucket = startOf(new Date(point.t)).getTime();
+    totals.set(bucket, (totals.get(bucket) ?? 0) + point.v);
+  }
+
+  return [...totals.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([t, v]) => ({ t, v: roundTo(v, 4) }));
+}
+
+/**
+ * Put several period series on one shared axis.
+ *
+ * Unlike `alignCumulative`, nothing carries forward: each bucket holds that
+ * period's own figure, and a period an appliance has no record for stays null
+ * rather than repeating the last one.
+ */
+export function alignByBucket(series: ChartPoint[][]): {
+  buckets: number[];
+  values: (number | null)[][];
+} {
+  const buckets = [...new Set(series.flatMap((points) => points.map((point) => point.t)))].sort(
+    (a, b) => a - b,
+  );
+
+  const values = series.map((points) => {
+    const byBucket = new Map(points.map((point) => [point.t, point.v]));
+    return buckets.map((bucket) => byBucket.get(bucket) ?? null);
+  });
+
+  return { buckets, values };
+}
+
 /** Local-time midnight at the start of the day containing `date`. */
 export function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());

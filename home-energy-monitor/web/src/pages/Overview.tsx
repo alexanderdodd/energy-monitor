@@ -1,6 +1,7 @@
 import { ApplianceCard } from "../components/ApplianceCard.tsx";
 import { CategoryCard } from "../components/CategoryCard.tsx";
 import { ComparisonCard } from "../components/ComparisonCard.tsx";
+import { TrendCard } from "../components/TrendCard.tsx";
 import { ConnectionBanner } from "../components/ConnectionBanner.tsx";
 import { CumulativeCard } from "../components/CumulativeCard.tsx";
 import { Stat } from "../components/Stat.tsx";
@@ -99,6 +100,8 @@ export function Overview({ live, streaming }: Props) {
       />
 
       <ComparisonCard />
+
+      <TrendCard />
 
       {summary.data.categories.length > 0 ? (
         <>

@@ -30,7 +30,12 @@ const VIEWS: { view: ComparisonView; label: string; hint: string }[] = [
  * lines tolerate the full palette. Anything past the cap folds into "Other"
  * rather than being given a colour of its own.
  */
-const CAP: Record<ComparisonView, number> = { lines: MAX_SERIES, bars: MAX_SERIES, share: 6 };
+const CAP: Record<ComparisonView, number> = {
+  lines: MAX_SERIES,
+  bars: MAX_SERIES,
+  grouped: MAX_SERIES,
+  share: 6,
+};
 
 interface Folded {
   series: ComparisonSeries[];

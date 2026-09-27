@@ -15,6 +15,8 @@ the data Home Assistant already has.
 - **Estimates** for monthly and yearly use, clearly labelled as estimates.
 - **Comparison charts** - lines, ranked bars and share - across appliances or
   categories, over today, 7 days or 30 days.
+- **Usage by period** - consumption per day, week or month per appliance or
+  category, with the change from the previous period.
 - **Categories** grouping appliances by activity — what "Washing" costs this
   week, and whether it is going up.
 - **Automatic discovery** — no typing entity IDs.

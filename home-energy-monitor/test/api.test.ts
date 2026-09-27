@@ -805,6 +805,85 @@ describe("GET /api/compare", () => {
   });
 });
 
+describe("GET /api/trend", () => {
+  it("reports each period's own consumption, not a running total", async () => {
+    await configureFridge(current);
+    const body = (
+      await current.app.inject({ url: "/api/trend?scope=appliances&period=day" })
+    ).json() as {
+      period: string;
+      buckets: number[];
+      series: { name: string; points: (number | null)[]; changePercent: number | null }[];
+    };
+
+    expect(body.period).toBe("day");
+    const fridge = body.series.find((item) => item.name === "Fridge")!;
+    // Each complete day stands at its own figure rather than accumulating.
+    const complete = fridge.points.slice(0, -1).filter((value): value is number => value !== null);
+    expect(complete.every((value) => Math.abs(value - PER_DAY) < 0.001)).toBe(true);
+  });
+
+  it("leaves the period in progress out of the change", async () => {
+    await configureFridge(current);
+    const body = (
+      await current.app.inject({ url: "/api/trend?scope=appliances&period=day" })
+    ).json() as {
+      inProgressFrom: number;
+      series: { name: string; changePercent: number | null }[];
+    };
+
+    expect(body.inProgressFrom).toBe(todayStart);
+    const fridge = body.series.find((item) => item.name === "Fridge")!;
+    // Every complete day is 0.8; today's part-finished 0.62 must not drag
+    // that into looking like a 22% fall.
+    expect(fridge.changePercent).toBe(0);
+  });
+
+  it("drops a week or month that began before the data window", async () => {
+    await configureFridge(current);
+    const monthly = (
+      await current.app.inject({ url: "/api/trend?period=month" })
+    ).json() as { buckets: number[] };
+
+    // A month only partly inside the window would tower over a full one.
+    const windowStart = new Date();
+    windowStart.setDate(windowStart.getDate() - 30);
+    windowStart.setHours(0, 0, 0, 0);
+    expect(monthly.buckets.every((bucket) => bucket >= windowStart.getTime())).toBe(true);
+  });
+
+  it("rolls days up into weeks and months", async () => {
+    await configureFridge(current);
+    const daily = (
+      await current.app.inject({ url: "/api/trend?period=day" })
+    ).json() as { buckets: number[] };
+    const weekly = (
+      await current.app.inject({ url: "/api/trend?period=week" })
+    ).json() as { buckets: number[] };
+    const monthly = (
+      await current.app.inject({ url: "/api/trend?period=month" })
+    ).json() as { buckets: number[] };
+
+    expect(weekly.buckets.length).toBeLessThan(daily.buckets.length);
+    expect(monthly.buckets.length).toBeLessThanOrEqual(weekly.buckets.length);
+  });
+
+  it("aligns every series on the same periods", async () => {
+    await configureFridge(current);
+    const body = (await current.app.inject({ url: "/api/trend" })).json() as {
+      buckets: number[];
+      series: { points: unknown[] }[];
+    };
+    for (const item of body.series) {
+      expect(item.points).toHaveLength(body.buckets.length);
+    }
+  });
+
+  it("rejects an unknown period", async () => {
+    expect((await current.app.inject({ url: "/api/trend?period=fortnight" })).statusCode).toBe(400);
+  });
+});
+
 describe("ingress guard", () => {
   it("refuses requests that did not come through Home Assistant", async () => {
     const guarded = await harness(true);

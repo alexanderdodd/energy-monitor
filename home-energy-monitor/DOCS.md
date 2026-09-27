@@ -27,6 +27,13 @@ Choose the period - today, 7 days or 30 days - and the view: how each one
 builds up over time, ranked totals, or each one's share of the whole. The
 numbers are the same ones the individual pages show.
 
+**Usage by period** answers the other half of the question: not who uses the
+most, but whether that is going up or down. It shows each appliance's or
+category's consumption per day, week or month side by side, with the change
+from the previous period. The period currently underway is drawn but left out
+of that change, since part of a day next to a whole one always looks like a
+fall.
+
 **Categories** group appliances by what they are for, so you can read spend by
 activity rather than by device — "Washing" covering the washing machine and
 the dehumidifier, say. Each category shows today's energy and cost, a

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.0
+
+- New "Usage by period" card alongside Compare: each appliance's or
+  category's consumption per day, week or month, as grouped bars or lines,
+  with the change from the previous period.
+- The period underway is shown but excluded from that change, and periods
+  that began before the data window are dropped - a part-finished period next
+  to a complete one is not a comparison.
+
 ## 0.11.0
 
 - New "Compare" card on the overview: every appliance, or every category, on

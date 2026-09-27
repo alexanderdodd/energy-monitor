@@ -9,8 +9,11 @@ import {
 import type { ConnectionStatus, HaSource, StatisticsPeriod } from "../ha/types.ts";
 import type { ConfigStore } from "../config/store.ts";
 import {
+  alignByBucket,
   alignCumulative,
   costOf,
+  groupByPeriod,
+  startOfLocalWeek,
   cumulativeEnergy,
   holdLevel,
   forecastFromDailyTotals,
@@ -24,6 +27,7 @@ import {
   toCanonicalUnit,
   unitScale,
   trendOverWindows,
+  type BucketPeriod,
   type ChartPoint,
   type Forecast,
   type MeasurementKind,
@@ -181,6 +185,40 @@ export interface CompareResult {
   series: CompareSeries[];
   totalKwh: number | null;
   currency: string;
+}
+
+export type TrendPeriod = BucketPeriod;
+
+export function isTrendPeriod(value: string): value is TrendPeriod {
+  return value === "day" || value === "week" || value === "month";
+}
+
+export interface TrendSeries {
+  id: string;
+  name: string;
+  /** That period's own consumption, not a running total. Null where unknown. */
+  points: (number | null)[];
+  /**
+   * Change between the last two *complete* periods, as a percentage. The
+   * period underway is excluded: part of a day measured against a whole one
+   * always looks like a fall.
+   */
+  changePercent: number | null;
+}
+
+export interface TrendResult {
+  scope: CompareScope;
+  period: TrendPeriod;
+  buckets: number[];
+  /**
+   * The bucket for the period currently underway, which is only part
+   * finished. Kept in the chart, but excluded from the change figure and
+   * flagged so the UI can say so.
+   */
+  inProgressFrom: number | null;
+  series: TrendSeries[];
+  currency: string;
+  electricityPricePerKwh: number;
 }
 
 export interface ApplianceDetail extends ApplianceReading {
@@ -817,22 +855,7 @@ export class ApplianceService {
     now = new Date(),
   ): Promise<CompareResult> {
     const config = this.#store.get();
-    const appliances = this.#store.enabledAppliances();
-
-    const items: { id: string; name: string; members: Appliance[] }[] =
-      scope === "categories"
-        ? config.categories.map((category) => ({
-            id: category.id,
-            name: category.name,
-            members: appliances.filter((appliance) =>
-              category.applianceIds.includes(appliance.id),
-            ),
-          }))
-        : appliances.map((appliance) => ({
-            id: appliance.id,
-            name: appliance.name,
-            members: [appliance],
-          }));
+    const items = this.#comparisonItems(scope);
 
     const curves: CumulativeResult[] = [];
     for (const item of items) {
@@ -862,6 +885,99 @@ export class ApplianceService {
       series,
       totalKwh: sumValues(series.map((item) => item.totalKwh)),
       currency: config.settings.currency,
+    };
+  }
+
+  /** Appliances or categories, resolved to the appliances behind each. */
+  #comparisonItems(scope: CompareScope): { id: string; name: string; members: Appliance[] }[] {
+    const config = this.#store.get();
+    const appliances = this.#store.enabledAppliances();
+
+    if (scope !== "categories") {
+      return appliances.map((appliance) => ({
+        id: appliance.id,
+        name: appliance.name,
+        members: [appliance],
+      }));
+    }
+
+    return config.categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      members: appliances.filter((appliance) => category.applianceIds.includes(appliance.id)),
+    }));
+  }
+
+  /**
+   * Consumption per period, for spotting whether use is rising or falling.
+   *
+   * Distinct from `compare`, which shows running totals within one range.
+   * Here each bucket is a period's own figure, so successive bars or points
+   * can be read against each other.
+   */
+  async trend(
+    scope: CompareScope,
+    period: TrendPeriod,
+    now = new Date(),
+  ): Promise<TrendResult> {
+    const items = this.#comparisonItems(scope);
+    const config = this.#store.get();
+
+    const grouped: ChartPoint[][] = [];
+    for (const item of items) {
+      const daily: ChartPoint[][] = [];
+      for (const appliance of item.members) {
+        daily.push((await this.#dailyEnergy(appliance, now)).points);
+      }
+      grouped.push(groupByPeriod(sumSeriesByBucket(daily), period));
+    }
+
+    const { buckets: allBuckets, values: allValues } = alignByBucket(grouped);
+
+    // A week or month that began before the data window did is only part
+    // recorded, and next to a full one it reads as a dramatic rise.
+    const windowStart = startOfLocalDayBefore(now, ENERGY_WINDOW_DAYS).getTime();
+    const keep = allBuckets
+      .map((bucket, index) => ({ bucket, index }))
+      .filter(({ bucket }) => period === "day" || bucket >= windowStart);
+
+    const buckets = keep.map(({ bucket }) => bucket);
+    const values = allValues.map((points) => keep.map(({ index }) => points[index] ?? null));
+
+    const currentPeriodStart =
+      period === "day"
+        ? startOfLocalDay(now).getTime()
+        : period === "week"
+          ? startOfLocalWeek(now).getTime()
+          : startOfLocalMonth(now).getTime();
+    const inProgressFrom = buckets.includes(currentPeriodStart) ? currentPeriodStart : null;
+
+    const series: TrendSeries[] = items.map((item, index) => {
+      const points = values[index] ?? [];
+      // Only complete periods are comparable.
+      const complete = buckets
+        .map((bucket, position) => ({ bucket, value: points[position] ?? null }))
+        .filter((entry) => entry.bucket !== inProgressFrom && entry.value !== null)
+        .map((entry) => entry.value as number);
+
+      const previous = complete.at(-2);
+      const latest = complete.at(-1);
+      const changePercent =
+        previous !== undefined && latest !== undefined && previous > 0
+          ? roundTo(((latest - previous) / previous) * 100, 1)
+          : null;
+
+      return { id: item.id, name: item.name, points, changePercent };
+    });
+
+    return {
+      scope,
+      period,
+      buckets,
+      inProgressFrom,
+      series,
+      currency: config.settings.currency,
+      electricityPricePerKwh: config.settings.electricityPricePerKwh,
     };
   }
 
