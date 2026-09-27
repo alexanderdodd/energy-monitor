@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0
+
+- Daily totals are now recovered from a plug's "energy today" counter by
+  reading its recorded history: the peak within each day, before its midnight
+  reset, is that day's total. Appliances with no lifetime meter finally get
+  real per-day figures, a populated daily energy chart, working weekly totals
+  and trends.
+- Weekly and monthly figures are only reported when every day in the period
+  is accounted for; a partial record shows a dash rather than understating.
+
 ## 0.8.0
 
 - Appliances with a monthly energy counter now use it. Plugs that expose only

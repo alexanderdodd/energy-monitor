@@ -15,7 +15,14 @@ export interface FakeSourceOptions {
   entityRegistry?: EntityRegistryEntry[];
   deviceRegistry?: DeviceRegistryEntry[];
   history?: Record<string, HistoryPoint[]>;
+  /** Used for any period without a more specific entry. */
   statistics?: Record<string, StatisticsPoint[]>;
+  /**
+   * Per-period statistics. Real Home Assistant returns quite different data
+   * for "day" than for "5minute", and code now chooses between them, so the
+   * fake has to tell them apart.
+   */
+  statisticsByPeriod?: Partial<Record<StatisticsPeriod, Record<string, StatisticsPoint[]>>>;
   status?: ConnectionStatus;
   /** Make every Home Assistant read fail, to exercise degraded behaviour. */
   failing?: boolean;
@@ -68,9 +75,9 @@ export class FakeHaSource implements HaSource {
     statisticIds: string[],
     _start: Date,
     _end: Date,
-    _period: StatisticsPeriod,
+    period: StatisticsPeriod,
   ): Promise<Record<string, StatisticsPoint[]>> {
-    const statistics = this.options.statistics ?? {};
+    const statistics = this.options.statisticsByPeriod?.[period] ?? this.options.statistics ?? {};
     const result: Record<string, StatisticsPoint[]> = {};
     for (const id of statisticIds) {
       if (statistics[id]) result[id] = statistics[id]!;

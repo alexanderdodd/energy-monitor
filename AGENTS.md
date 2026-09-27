@@ -242,6 +242,16 @@ That shape drives two rules:
   code follows, applied to aggregates.
 - **Use the monthly counter.** Ignoring `energy_month` meant reporting
   `0.00 kWh` for a month the device itself said was 1.86 kWh.
+- **A daily counter's history is a per-day record.** It climbs through the day
+  and resets at midnight, so the highest value within each local day is that
+  day's total. `buildDailyEnergyFromCounter` recovers real daily figures this
+  way, which is what finally fills the daily chart, the weekly figures and
+  trends for these plugs. Bounded by recorder retention (ten days by
+  default), so check coverage before claiming a period.
+- **Claim a period only when every day in it is accounted for.**
+  `#energyPeriods` checks that each local day in the window has a value; a
+  partial window returns null. Summing what happens to be present silently
+  reports missing days as zero.
 
 The mock reproduces this shape: profiles expose a monthly counter, and the
 washing machine reports mixed units.

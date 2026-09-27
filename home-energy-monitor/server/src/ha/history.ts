@@ -1,5 +1,6 @@
 import {
   downsample,
+  parseNumericState,
   roundTo,
   startOfLocalDay,
   unitScale,
@@ -118,16 +119,68 @@ export async function buildDailyEnergy(
   end: Date,
 ): Promise<ChartPoint[]> {
   const entity = appliance.entities.energy;
-  if (!entity) return [];
 
-  const stats = await source.getStatistics([entity], start, end, "day");
-  const series = stats[entity];
-  if (!series) return [];
+  if (entity) {
+    const stats = await source.getStatistics([entity], start, end, "day");
+    const series = stats[entity];
+    if (series && series.length > 0) {
+      return series.map((point) => ({
+        t: point.start,
+        v: typeof point.change === "number" ? roundTo(point.change, 3) : null,
+      }));
+    }
+  }
 
-  return series.map((point) => ({
-    t: point.start,
-    v: typeof point.change === "number" ? roundTo(point.change, 3) : null,
-  }));
+  // No lifetime meter means no statistics. A daily counter's own history
+  // still yields a real total per day, which is what fills the daily chart
+  // and the weekly figures for plugs that only expose day and month counters.
+  if (appliance.entities.energyDay) {
+    return buildDailyEnergyFromCounter(source, appliance.entities.energyDay, start, end);
+  }
+
+  return [];
+}
+
+/**
+ * Daily totals recovered from a vendor "energy today" counter's history.
+ *
+ * Such a counter climbs through the day and resets at midnight, so the
+ * highest value recorded within a local day is that day's total. Reading its
+ * history gives genuine per-day figures for appliances that expose no
+ * lifetime meter - and therefore have no long-term statistics at all.
+ *
+ * Limited by the recorder's retention (ten days by default), so the caller
+ * must check coverage before claiming a period is complete.
+ */
+export async function buildDailyEnergyFromCounter(
+  source: HaSource,
+  entityId: string,
+  start: Date,
+  end: Date,
+): Promise<ChartPoint[]> {
+  const history = await source.getHistory([entityId], start, end);
+  const points = history[entityId] ?? [];
+  if (points.length === 0) return [];
+
+  const scale = unitScale(
+    source.getCachedState(entityId)?.attributes.unit_of_measurement,
+    "energy",
+  );
+
+  // Highest reading seen within each local day.
+  const peaks = new Map<number, number>();
+  for (const point of points) {
+    const value = parseNumericState(point.s);
+    if (value === null) continue;
+    const day = startOfLocalDay(new Date(point.t)).getTime();
+    const scaled = value * scale;
+    const current = peaks.get(day);
+    if (current === undefined || scaled > current) peaks.set(day, scaled);
+  }
+
+  return [...peaks.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([t, v]) => ({ t, v: roundTo(v, 4) }));
 }
 
 /** Sum the daily energy buckets that fall on or after `from`. */

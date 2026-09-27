@@ -65,6 +65,40 @@ const todayStart = (() => {
   return date.getTime();
 })();
 
+const DAY_MS = 86_400_000;
+/** kWh recorded on each complete day before today. */
+const PER_DAY = 0.8;
+/** kWh recorded so far today. */
+const TODAY_KWH = 0.62;
+
+/** 35 days of daily buckets, so any calendar month is fully covered. */
+const DAILY_STATISTICS = [
+  ...Array.from({ length: 35 }, (_, i) => {
+    const start = todayStart - (35 - i) * DAY_MS;
+    return { start, end: start + DAY_MS, change: PER_DAY };
+  }),
+  { start: todayStart, end: todayStart + DAY_MS, change: TODAY_KWH },
+];
+
+/** Today split into three buckets, summing to the same daily figure. */
+const INTRADAY_STATISTICS = [
+  { start: todayStart, end: todayStart + 3_600_000, change: 0.2 },
+  { start: todayStart + 3_600_000, end: todayStart + 7_200_000, change: 0.2 },
+  { start: todayStart + 7_200_000, end: todayStart + 10_800_000, change: 0.22 },
+];
+
+/** Days from the first of the month up to yesterday. */
+function completeDaysThisMonth(): number {
+  const now = new Date();
+  return now.getDate() - 1;
+}
+
+/** Remove every statistic, as on an install that has generated none. */
+function clearStatistics(h: Harness): void {
+  h.source.options.statistics = {};
+  h.source.options.statisticsByPeriod = {};
+}
+
 interface Harness {
   app: FastifyInstance;
   source: FakeHaSource;
@@ -79,16 +113,12 @@ async function harness(enforceIngress = false): Promise<Harness> {
     states: STATES,
     entityRegistry: ENTITY_REGISTRY,
     deviceRegistry: DEVICE_REGISTRY,
-    // Yesterday as one bucket, today split intraday - the shape Home
-    // Assistant returns, and what lets today's curve be a curve rather than
-    // a single point.
-    statistics: {
-      "sensor.fridge_energy": [
-        { start: todayStart - 86_400_000, end: todayStart, change: 0.8 },
-        { start: todayStart, end: todayStart + 3_600_000, change: 0.2 },
-        { start: todayStart + 3_600_000, end: todayStart + 7_200_000, change: 0.2 },
-        { start: todayStart + 7_200_000, end: todayStart + 10_800_000, change: 0.22 },
-      ],
+    // Daily buckets going well back, so a "this week" or "this month" claim
+    // has every day it needs; today split intraday for the day curve.
+    statistics: { "sensor.fridge_energy": DAILY_STATISTICS },
+    statisticsByPeriod: {
+      "5minute": { "sensor.fridge_energy": INTRADAY_STATISTICS },
+      hour: {},
     },
     history: {
       "sensor.fridge_power": [{ t: Date.now() - 3_600_000, s: "43.2" }],
@@ -225,11 +255,13 @@ describe("GET /api/summary", () => {
         costMonth: number;
       };
     };
-    // Yesterday's 0.8 plus today's 0.62, at the default 0.30 per kWh.
-    expect(body.totals.energyWeekKwh).toBeCloseTo(1.42, 3);
-    expect(body.totals.costWeek).toBe(0.43);
-    expect(body.totals.energyMonthKwh).toBeCloseTo(1.42, 3);
-    expect(body.totals.costMonth).toBe(0.43);
+    // Six complete days at 0.8 plus today's 0.62.
+    const week = 6 * PER_DAY + TODAY_KWH;
+    expect(body.totals.energyWeekKwh).toBeCloseTo(week, 3);
+    expect(body.totals.costWeek).toBeCloseTo(week * 0.3, 2);
+
+    const month = completeDaysThisMonth() * PER_DAY + TODAY_KWH;
+    expect(body.totals.energyMonthKwh).toBeCloseTo(month, 3);
   });
 
   it("totals live power, energy and cost", async () => {
@@ -463,7 +495,10 @@ describe("an appliance with only vendor counters and no statistics", () => {
   // Exactly the shape a SONOFF plug reports through SonoffLAN: daily and
   // monthly counters, no lifetime total, and no long-term statistics yet.
   async function configureCounterOnly(h: Harness) {
-    h.source.options.statistics = {};
+    clearStatistics(h);
+    // No recorded history for the daily counter either, so today's reading is
+    // genuinely all that is known.
+    h.source.options.history = {};
     h.source.setState("sensor.fridge_energy_day", "0.0", {
       device_class: "energy",
       state_class: "total_increasing",
@@ -510,9 +545,9 @@ describe("an appliance with only vendor counters and no statistics", () => {
     await configureCounterOnly(current);
     const body = (
       await current.app.inject({ url: "/api/appliances/device:dev-fridge" })
-    ).json() as { energyTodayKwh: number; energyWeekKwh: number | null; hasStatistics: boolean };
+    ).json() as { energyTodayKwh: number; energyWeekKwh: number | null; hasDailyHistory: boolean };
 
-    expect(body.hasStatistics).toBe(false);
+    expect(body.hasDailyHistory).toBe(false);
     // Today is known from the daily counter.
     expect(body.energyTodayKwh).toBe(0);
     // Six earlier days nobody has any record of must not read as 0.00.
@@ -577,7 +612,7 @@ describe("cumulative curves", () => {
     // A day-old install asked for 7 days: show that day properly, the way a
     // long-range stock chart shows a recent listing.
     await configureFridge(current);
-    current.source.options.statistics = {};
+    clearStatistics(current);
 
     const response = await current.app.inject({ url: "/api/summary/cumulative?range=7d" });
     const body = response.json() as {
@@ -632,15 +667,14 @@ describe("cumulative curves", () => {
 
     const body = response.json() as { range: string; totalKwh: number; points: { v: number }[] };
     expect(body.range).toBe("7d");
-    // Yesterday's 0.8 plus today's 0.62 - the curve keeps climbing across
-    // the day boundary rather than resetting at midnight.
-    expect(body.totalKwh).toBeCloseTo(1.42, 3);
-    expect(body.points.at(0)!.v).toBeCloseTo(0.8, 3);
+    // The curve keeps climbing across day boundaries rather than resetting.
+    expect(body.totalKwh).toBeCloseTo(6 * PER_DAY + TODAY_KWH, 3);
+    expect(body.points.at(0)!.v).toBeCloseTo(PER_DAY, 3);
   });
 
   it("follows the vendor daily meter when statistics are missing", async () => {
     await configureFridge(current);
-    current.source.options.statistics = {};
+    clearStatistics(current);
 
     const response = await current.app.inject({ url: "/api/summary/cumulative" });
     const body = response.json() as { source: string; totalKwh: number };
@@ -652,7 +686,7 @@ describe("cumulative curves", () => {
 
   it("integrates power only when there is no meter either", async () => {
     await configureFridge(current);
-    current.source.options.statistics = {};
+    clearStatistics(current);
     current.source.options.history = {
       "sensor.fridge_power": [{ t: todayStart, s: "100" }],
     };
@@ -692,7 +726,7 @@ describe("cumulative curves", () => {
   it("returns an empty curve, not an error, when nothing was recorded", async () => {
     await configureFridge(current);
     current.source.options.history = {};
-    current.source.options.statistics = {};
+    clearStatistics(current);
     const response = await current.app.inject({
       url: "/api/appliances/device:dev-dryer/cumulative",
     });
@@ -729,5 +763,84 @@ describe("ingress guard", () => {
       guarded.broadcaster.stop();
       await guarded.app.close();
     }
+  });
+});
+
+describe("recovering daily totals from a daily counter", () => {
+  /** A counter that climbs through each day and resets at midnight. */
+  function counterHistory(days: number, perDay: number) {
+    const points: { t: number; s: string }[] = [];
+    for (let day = days - 1; day >= 0; day -= 1) {
+      const dayStart = todayStart - day * 86_400_000;
+      points.push({ t: dayStart + 1_000, s: "0" });
+      points.push({ t: dayStart + 6 * 3_600_000, s: String(perDay / 2) });
+      points.push({ t: dayStart + 20 * 3_600_000, s: String(perDay) });
+    }
+    return points;
+  }
+
+  async function configureCounterWithHistory(h: Harness, days: number, perDay: number) {
+    clearStatistics(h);
+    h.source.options.history = {
+      "sensor.fridge_energy_day": counterHistory(days, perDay),
+    };
+    await h.app.inject({
+      method: "PUT",
+      url: "/api/appliances",
+      payload: {
+        appliances: [
+          {
+            id: "device:dev-fridge",
+            name: "Fridge",
+            entities: {
+              power: "sensor.fridge_power",
+              energyDay: "sensor.fridge_energy_day",
+            },
+            enabled: true,
+          },
+        ],
+      },
+    });
+  }
+
+  it("takes each day's peak before its midnight reset as that day's total", async () => {
+    await configureCounterWithHistory(current, 10, 1.2);
+    const body = (
+      await current.app.inject({ url: "/api/appliances/device:dev-fridge" })
+    ).json() as {
+      hasDailyHistory: boolean;
+      energyTodayKwh: number;
+      energyWeekKwh: number;
+    };
+
+    expect(body.hasDailyHistory).toBe(true);
+    expect(body.energyTodayKwh).toBeCloseTo(1.2, 3);
+    // Seven days of real measured totals, not a vendor counter.
+    expect(body.energyWeekKwh).toBeCloseTo(7 * 1.2, 3);
+  });
+
+  it("still refuses a week it cannot fully account for", async () => {
+    await configureCounterWithHistory(current, 3, 1.2);
+    const body = (
+      await current.app.inject({ url: "/api/appliances/device:dev-fridge" })
+    ).json() as { energyWeekKwh: number | null; energyTodayKwh: number };
+
+    expect(body.energyTodayKwh).toBeCloseTo(1.2, 3);
+    // Only three days recorded; the other four are unknown, not zero.
+    expect(body.energyWeekKwh).toBeNull();
+  });
+
+  it("fills the daily energy chart that had nothing to draw before", async () => {
+    await configureCounterWithHistory(current, 10, 1.2);
+    const body = (
+      await current.app.inject({
+        url: "/api/appliances/device:dev-fridge/history?range=30d",
+      })
+    ).json() as { energyDaily: { v: number | null }[] };
+
+    // One bar per recorded day, where the chart previously said "no daily
+    // totals yet" and would have gone on saying it forever.
+    expect(body.energyDaily.length).toBe(10);
+    expect(body.energyDaily.every((point) => point.v === 1.2)).toBe(true);
   });
 });

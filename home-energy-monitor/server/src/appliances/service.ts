@@ -1,5 +1,11 @@
 import { log } from "../logger.ts";
-import { buildDailyEnergy, buildHistory, sumDailyEnergy, type HistoryRange, type HistoryResult } from "../ha/history.ts";
+import {
+  buildDailyEnergy,
+  buildHistory,
+  sumDailyEnergy,
+  type HistoryRange,
+  type HistoryResult,
+} from "../ha/history.ts";
 import type { ConnectionStatus, HaSource, StatisticsPeriod } from "../ha/types.ts";
 import type { ConfigStore } from "../config/store.ts";
 import {
@@ -42,12 +48,29 @@ const ENERGY_WINDOW_DAYS = 30;
 interface DailyEnergy {
   points: ChartPoint[];
   /**
-   * True when the series came from Home Assistant's statistics, meaning it
-   * genuinely covers past days. False when it is only today's figure read
-   * straight off a vendor counter, in which case nothing can be said about
-   * any earlier day.
+   * True when real per-day history sits behind the series, whether from
+   * Home Assistant's statistics or recovered from a daily counter's recorded
+   * history. False when the only figure available is today's, read straight
+   * off a counter, in which case nothing can be said about any earlier day.
    */
   fromStatistics: boolean;
+}
+
+/** Local-day timestamps present in a series, for checking period coverage. */
+function daysCovered(points: ChartPoint[]): Set<number> {
+  return new Set(points.filter((point) => point.v !== null).map((point) => point.t));
+}
+
+/** Every local-day start from `from` up to and including today. */
+function daysBetween(from: Date, now: Date): number[] {
+  const days: number[] = [];
+  const cursor = startOfLocalDay(from);
+  const last = startOfLocalDay(now).getTime();
+  while (cursor.getTime() <= last) {
+    days.push(cursor.getTime());
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
 }
 
 interface CachedEnergy {
@@ -157,8 +180,8 @@ export interface ApplianceDetail extends ApplianceReading {
   costMonth: number | null;
   forecast: (Forecast & { estimatedYearlyCost: number | null }) | null;
   sensors: SensorDiagnostic[];
-  /** True when Home Assistant has long-term statistics for the energy meter. */
-  hasStatistics: boolean;
+  /** True when real per-day history backs the weekly and monthly figures. */
+  hasDailyHistory: boolean;
 }
 
 /**
@@ -260,7 +283,7 @@ export class ApplianceService {
 
     let daily: DailyEnergy = { points, fromStatistics: points.length > 0 };
 
-    if (points.length === 0) {
+    if (daily.points.length === 0) {
       const today = this.#measurement(appliance, "energyDay", "energy");
       if (today !== null) {
         daily = {
@@ -292,24 +315,25 @@ export class ApplianceService {
   ): Promise<{ daily: DailyEnergy; today: number | null; week: number | null; month: number | null }> {
     const daily = await this.#dailyEnergy(appliance, now);
     const today = sumDailyEnergy(daily.points, now);
+    const covered = daysCovered(daily.points);
 
-    if (daily.fromStatistics) {
-      return {
-        daily,
-        today,
-        week: sumDailyEnergy(daily.points, startOfLocalDayBefore(now, 6)),
-        month: sumDailyEnergy(daily.points, startOfLocalMonth(now)),
-      };
-    }
+    // A period is only reported when every one of its days is accounted for.
+    // Summing a partial window would quietly present missing days as zero.
+    const sumIfComplete = (from: Date): number | null => {
+      const needed = daysBetween(from, now);
+      if (!needed.every((day) => covered.has(day))) return null;
+      return sumDailyEnergy(daily.points, from);
+    };
+
+    const monthFromHistory = daily.fromStatistics ? sumIfComplete(startOfLocalMonth(now)) : null;
 
     return {
       daily,
       today,
-      week: null,
-      // Without a monthly counter the month is as unknowable as the week;
-      // reporting today's figure as the month's would imply the rest of the
-      // month was zero.
-      month: this.#measurement(appliance, "energyMonth", "energy"),
+      week: daily.fromStatistics ? sumIfComplete(startOfLocalDayBefore(now, 6)) : null,
+      // The vendor's monthly counter reaches further back than the recorder
+      // does, so it fills in when history cannot cover the whole month.
+      month: monthFromHistory ?? this.#measurement(appliance, "energyMonth", "energy"),
     };
   }
 
@@ -578,7 +602,7 @@ export class ApplianceService {
         ? { ...forecast, estimatedYearlyCost: costOf(forecast.estimatedYearlyKwh, price) }
         : null,
       sensors: this.#diagnostics(appliance),
-      hasStatistics: daily.fromStatistics,
+      hasDailyHistory: daily.fromStatistics,
     };
   }
 

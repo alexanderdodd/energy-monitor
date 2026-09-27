@@ -199,9 +199,9 @@ export function ApplianceDetailPage({ id, live, streaming }: Props) {
           </table>
         </div>
         <p className="meta">
-          {appliance.hasStatistics
-            ? "Home Assistant has long-term statistics for this appliance."
-            : "No long-term statistics yet, so daily totals come from the sensors directly."}
+          {appliance.hasDailyHistory
+            ? "Per-day history is available, so weekly and monthly figures are real sums."
+            : "No per-day history yet, so only today can be measured. Periods without a full record show a dash rather than a zero."}
         </p>
       </details>
 

@@ -157,7 +157,7 @@ export interface ApplianceDetail extends ApplianceReading {
   costMonth: number | null;
   forecast: Forecast | null;
   sensors: SensorDiagnostic[];
-  hasStatistics: boolean;
+  hasDailyHistory: boolean;
   currency: string;
   electricityPricePerKwh: number;
   homeAssistant: ConnectionStatus;
