@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+- Fixed appliances whose sensors report kW or Wh being charted and totalled
+  wrongly. Only the live reading converted units; history, cumulative curves
+  and daily meters used raw sensor values, so a plug reporting kW appeared
+  a thousand times too small and contributed almost nothing to its category.
+- Charts now draw whatever history exists rather than the range requested, so
+  a 7-day or 30-day view on a new install shows the days it has instead of a
+  single invisible point.
+- Sparse series show their data points, which previously rendered as an empty
+  chart.
+
 ## 0.5.0
 
 - Weekly and monthly consumption and cost on the overview, appliance pages

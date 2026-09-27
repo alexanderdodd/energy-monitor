@@ -115,7 +115,14 @@ export default function PowerChart({ points, kind, range, unitLabel, label }: Pr
             type: kind,
             // Nulls are gaps in the recording, not zeroes.
             data: points.map((point) => point.v),
-            showSymbol: false,
+            // A line with symbols off draws nothing at all when there is only
+            // one point, so a day-old install saw an empty chart rather than
+            // its single day. Show the points whenever the series is sparse
+            // enough for them to read as data rather than noise.
+            showSymbol: points.length <= 40,
+            symbolSize: 5,
+            // Keep a lone daily bar from stretching across the whole card.
+            barMaxWidth: 56,
             smooth: false,
             connectNulls: false,
             lineStyle: { width: 1.6, color: theme.accent },

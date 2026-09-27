@@ -2,6 +2,7 @@ import {
   downsample,
   roundTo,
   startOfLocalDay,
+  unitScale,
   type ChartPoint,
 } from "../appliances/calculations.ts";
 import type { Appliance } from "../appliances/types.ts";
@@ -85,7 +86,13 @@ export async function buildHistory(
 
     if (power.length === 0) {
       const history = await source.getHistory([powerEntity], new Date(start), new Date(end));
-      power = downsample(history[powerEntity] ?? [], start, end, config.bucketMs);
+      // Raw history is in the sensor's own unit; a plug reporting kW would
+      // otherwise chart two orders of magnitude below one reporting W.
+      const scale = unitScale(
+        source.getCachedState(powerEntity)?.attributes.unit_of_measurement,
+        "power",
+      );
+      power = downsample(history[powerEntity] ?? [], start, end, config.bucketMs, scale);
     }
   }
 

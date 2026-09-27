@@ -193,6 +193,23 @@ is disabled in mock mode.
   and the cumulative curve both read the same statistics for this reason.
   Before adding a second way to compute something already on screen, make it
   reuse the first.
+- **Recorder history is in the sensor's own unit; convert it.** Live readings
+  went through `toCanonicalUnit` from the start, but charts, cumulative curves
+  and daily meters read raw states. A plug reporting kW charted at 0.21 beside
+  one reporting W at 180, and its energy never reached the totals. Every
+  history-derived series now takes a `unitScale` multiplier, and statistics
+  are requested with `units: { energy: "kWh", power: "W" }` so Home Assistant
+  converts on its side. Integrations are not consistent about units - never
+  assume a series is already canonical.
+- **The mock deliberately reports mixed units.** The washing machine profile
+  uses kW and Wh precisely so development reproduces the conversion bug class
+  instead of assuming it away. Do not "tidy" it to match the others.
+- **A chart must draw whatever history exists, not the range requested.** A
+  30-day view on a day-old install should draw that day at fine resolution,
+  the way a five-year stock chart of a recent listing draws the months it has.
+  Resolution is chosen finest-first, falling back until something has more
+  than one point; a single point is a dot, not a chart, and with symbols off
+  it renders as literally nothing.
 - **Watch rounding when a helper starts serving a finer resolution.**
   `sumSeriesByBucket` rounded to three decimals, which was harmless for daily
   totals and silently zeroed five-minute buckets when the cumulative curve

@@ -9,6 +9,7 @@ import {
   parseNumericState,
   startOfLocalDayBefore,
   toCanonicalUnit,
+  unitScale,
 } from "../server/src/appliances/calculations.ts";
 
 describe("parseNumericState", () => {
@@ -306,5 +307,65 @@ describe("holdLevel", () => {
       bucket,
     );
     expect(result.map((point) => point.v)).toEqual([1, 1, 4, 4]);
+  });
+});
+
+describe("unit scaling of recorded history", () => {
+  it("derives the multiplier from the sensor's own unit", () => {
+    expect(unitScale("W", "power")).toBe(1);
+    expect(unitScale("kW", "power")).toBe(1000);
+    expect(unitScale("Wh", "energy")).toBe(0.001);
+    expect(unitScale("kWh", "energy")).toBe(1);
+  });
+
+  it("falls back to 1 for a missing or unrecognised unit", () => {
+    expect(unitScale(undefined, "power")).toBe(1);
+    expect(unitScale("BTU/h", "power")).toBe(1);
+  });
+
+  it("charts a kW sensor on the same scale as a W one", () => {
+    // The bug this guards: a plug reporting kW charted as "0.21 W" beside a
+    // plug reporting W at 180.
+    const inWatts = downsample([{ t: 0, s: "210" }], 0, 60_000, 60_000, unitScale("W", "power"));
+    const inKilowatts = downsample(
+      [{ t: 0, s: "0.21" }],
+      0,
+      60_000,
+      60_000,
+      unitScale("kW", "power"),
+    );
+    expect(inKilowatts[0]!.v).toBeCloseTo(inWatts[0]!.v!, 6);
+    expect(inKilowatts[0]!.v).toBe(210);
+  });
+
+  it("integrates a kW sensor into the right number of kWh", () => {
+    // 0.21 kW held for an hour is 0.21 kWh.
+    const result = cumulativeEnergy(
+      [[{ t: 0, s: "0.21" }]],
+      0,
+      3_600_000,
+      900_000,
+      [unitScale("kW", "power")],
+    );
+    expect(result.at(-1)!.v).toBeCloseTo(0.21, 4);
+  });
+
+  it("scales each series by its own unit when several are combined", () => {
+    const result = cumulativeEnergy(
+      [
+        [{ t: 0, s: "0.5" }], // kW  -> 500 W
+        [{ t: 0, s: "500" }], // W   -> 500 W
+      ],
+      0,
+      3_600_000,
+      900_000,
+      [unitScale("kW", "power"), unitScale("W", "power")],
+    );
+    expect(result.at(-1)!.v).toBeCloseTo(1, 4);
+  });
+
+  it("scales a daily meter reporting Wh", () => {
+    const result = holdLevel([{ t: 0, s: "1430" }], 0, 60_000, 60_000, unitScale("Wh", "energy"));
+    expect(result[0]!.v).toBeCloseTo(1.43, 6);
   });
 });

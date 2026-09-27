@@ -79,10 +79,15 @@ async function harness(enforceIngress = false): Promise<Harness> {
     states: STATES,
     entityRegistry: ENTITY_REGISTRY,
     deviceRegistry: DEVICE_REGISTRY,
+    // Yesterday as one bucket, today split intraday - the shape Home
+    // Assistant returns, and what lets today's curve be a curve rather than
+    // a single point.
     statistics: {
       "sensor.fridge_energy": [
         { start: todayStart - 86_400_000, end: todayStart, change: 0.8 },
-        { start: todayStart, end: todayStart + 86_400_000, change: 0.62 },
+        { start: todayStart, end: todayStart + 3_600_000, change: 0.2 },
+        { start: todayStart + 3_600_000, end: todayStart + 7_200_000, change: 0.2 },
+        { start: todayStart + 7_200_000, end: todayStart + 10_800_000, change: 0.22 },
       ],
     },
     history: {
@@ -436,9 +441,7 @@ describe("cumulative curves", () => {
     expect(values.at(-1)).toBe(curve.totalKwh);
   });
 
-  it("shows a 7d curve even when only the daily fallback has data", async () => {
-    // Reproduces the category page reporting "Nothing recorded yet" for 7d
-    // while the totals beside it showed a week's worth of energy.
+  it("keeps the 7d curve tied to the this-week figure", async () => {
     await configureFridge(current);
     await current.app.inject({
       method: "PUT",
@@ -454,8 +457,31 @@ describe("cumulative curves", () => {
     ).json() as { points: unknown[]; totalKwh: number };
 
     expect(curve.points.length).toBeGreaterThan(0);
-    // The curve and the "this week" figure must be the same number.
     expect(curve.totalKwh).toBeCloseTo(summary.totals.energyWeekKwh, 3);
+  });
+
+  it("draws the history it has rather than one dot on an empty week", async () => {
+    // A day-old install asked for 7 days: show that day properly, the way a
+    // long-range stock chart shows a recent listing.
+    await configureFridge(current);
+    current.source.options.statistics = {};
+
+    const response = await current.app.inject({ url: "/api/summary/cumulative?range=7d" });
+    const body = response.json() as {
+      range: string;
+      source: string;
+      points: { t: number }[];
+      start: number;
+    };
+
+    expect(body.range).toBe("7d");
+    expect(body.source).toBe("meter");
+    // Many points across the one day available, not a single daily dot.
+    expect(body.points.length).toBeGreaterThan(1);
+    // The window reported is the data's own span, so the axis is not mostly
+    // empty space.
+    expect(body.start).toBe(body.points[0]!.t);
+    expect(body.start).toBeGreaterThanOrEqual(todayStart);
   });
 
   it("sums every member of a category, not just the first", async () => {

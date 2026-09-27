@@ -17,6 +17,18 @@ export function parseNumericState(state: string | null | undefined): number | nu
 
 export type MeasurementKind = "power" | "energy" | "current" | "voltage";
 
+/**
+ * Multiplier that converts a sensor's own unit to the canonical one.
+ *
+ * Recorder history carries raw sensor values, so a plug reporting kW charts
+ * as "0.21 W" next to one reporting W unless its series is scaled. An
+ * unrecognised unit scales by 1 rather than discarding the series outright,
+ * matching how a missing unit is treated.
+ */
+export function unitScale(unit: string | null | undefined, kind: MeasurementKind): number {
+  return toCanonicalUnit(1, unit, kind) ?? 1;
+}
+
 /** Multipliers onto each measurement's canonical unit: W, kWh, A, V. */
 const UNIT_FACTORS: Record<MeasurementKind, Record<string, number>> = {
   power: { w: 1, kw: 1_000, mw: 0.001, MW: 1_000_000 },
@@ -127,6 +139,8 @@ export function downsample(
   start: number,
   end: number,
   bucketMs: number,
+  /** Multiplier onto the canonical unit; see `unitScale`. */
+  scale = 1,
 ): ChartPoint[] {
   const bucketCount = bucketCountFor(start, end, bucketMs);
   const weighted = new Float64Array(bucketCount);
@@ -142,7 +156,7 @@ export function downsample(
     const weight = weights[i]!;
     result[i] = {
       t: start + i * bucketMs,
-      v: weight > 0 ? roundTo(weighted[i]! / weight, 2) : null,
+      v: weight > 0 ? roundTo((weighted[i]! / weight) * scale, 2) : null,
     };
   }
   return result;
@@ -162,6 +176,8 @@ export function holdLevel(
   start: number,
   end: number,
   bucketMs: number,
+  /** Multiplier onto the canonical unit; see `unitScale`. */
+  scale = 1,
 ): ChartPoint[] {
   const bucketCount = bucketCountFor(start, end, bucketMs);
   const result: ChartPoint[] = new Array(bucketCount);
@@ -181,7 +197,7 @@ export function holdLevel(
     // window, so readings from before `start` legitimately seed the level.
     while (index < points.length && points[index]!.t <= bucketEnd) {
       const value = parseNumericState(points[index]!.s);
-      if (value !== null) current = value;
+      if (value !== null) current = value * scale;
       index += 1;
     }
     result[i] = { t: bucketStart, v: current };
@@ -214,14 +230,17 @@ export function cumulativeEnergy(
   start: number,
   end: number,
   bucketMs: number,
+  /** Per-series multiplier onto watts; see `unitScale`. */
+  scales: number[] = [],
 ): ChartPoint[] {
   const bucketCount = bucketCountFor(start, end, bucketMs);
   const wattMs = new Float64Array(bucketCount);
   let sawAnything = false;
 
-  for (const points of series) {
+  for (const [seriesIndex, points] of series.entries()) {
+    const scale = scales[seriesIndex] ?? 1;
     forEachSlice(points, start, end, bucketMs, bucketCount, (index, value, duration) => {
-      wattMs[index] = wattMs[index]! + value * duration;
+      wattMs[index] = wattMs[index]! + value * scale * duration;
       sawAnything = true;
     });
   }

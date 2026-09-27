@@ -122,6 +122,9 @@ export class SupervisorHaSource implements HaSource {
         statistic_ids: statisticIds,
         period,
         types: ["mean", "change", "state", "sum"],
+        // Home Assistant converts on its side, so a meter reporting Wh or a
+        // plug reporting kW comes back in the units the app works in.
+        units: { energy: "kWh", power: "W" },
       });
       this.#markUpdated();
       return result ?? {};

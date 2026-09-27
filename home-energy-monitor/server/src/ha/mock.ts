@@ -16,6 +16,14 @@ interface MockProfile {
   slug: string;
   name: string;
   model: string;
+  /**
+   * Units this plug reports in. Real integrations are not consistent - one
+   * plug reports W and kWh, the next kW and Wh - and the app has to convert.
+   * At least one profile deliberately differs so development reproduces that
+   * rather than assuming everything is canonical.
+   */
+  powerUnit?: "W" | "kW";
+  energyUnit?: "kWh" | "Wh";
   /** Watts drawn at a given instant. Deterministic, so history, statistics
    *  and live values all tell the same story. */
   powerAt: (t: number) => number;
@@ -66,6 +74,8 @@ const PROFILES: MockProfile[] = [
     slug: "washing_machine",
     name: "Washing Machine",
     model: "S60TPF",
+    powerUnit: "kW",
+    energyUnit: "Wh",
     // A wash between 09:00 and 10:30: heating element first, then tumbling.
     powerAt: (t) => {
       if (!runsBetween(t, 9, 10.5)) return 0;
@@ -268,12 +278,19 @@ export class MockHaSource implements HaSource {
     if (!profile) return "unavailable";
 
     const watts = profile.powerAt(t);
-    if (id.endsWith("_power")) return watts.toFixed(1);
+    if (id.endsWith("_power")) {
+      return profile.powerUnit === "kW" ? (watts / 1_000).toFixed(4) : watts.toFixed(1);
+    }
     if (id.endsWith("_voltage")) return VOLTAGE_AT(t).toFixed(1);
     if (id.endsWith("_current")) return (watts / VOLTAGE_AT(t)).toFixed(2);
-    if (id.endsWith("_energy_day")) return this.#energySince(profile, startOfDay(t), t).toFixed(3);
+
+    const kwhToday = this.#energySince(profile, startOfDay(t), t);
+    const toEnergyUnit = (kwh: number) =>
+      profile.energyUnit === "Wh" ? (kwh * 1_000).toFixed(1) : kwh.toFixed(3);
+
+    if (id.endsWith("_energy_day")) return toEnergyUnit(kwhToday);
     // Lifetime total: an arbitrary but stable starting point plus today.
-    return (120 + this.#energySince(profile, startOfDay(t), t)).toFixed(3);
+    return toEnergyUnit(120 + kwhToday);
   }
 
   /** kWh consumed between two instants, integrated from the power curve. */
@@ -292,6 +309,12 @@ export class MockHaSource implements HaSource {
         const id = entityId(profile, measurement);
         const meta = MEASUREMENTS[measurement];
         const value = this.#valueAt(id, now);
+        const unit =
+          measurement === "power"
+            ? (profile.powerUnit ?? meta.unit)
+            : meta.deviceClass === "energy"
+              ? (profile.energyUnit ?? meta.unit)
+              : meta.unit;
         const previous = this.#cache.get(id);
         if (previous?.state === value) continue;
 
@@ -304,7 +327,7 @@ export class MockHaSource implements HaSource {
             friendly_name: `${profile.name} ${meta.label}`,
             device_class: meta.deviceClass,
             state_class: meta.stateClass,
-            unit_of_measurement: meta.unit,
+            unit_of_measurement: unit,
           },
         };
         this.#cache.set(id, state);

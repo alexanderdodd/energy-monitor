@@ -15,6 +15,7 @@ import {
   startOfLocalMonth,
   sumSeriesByBucket,
   toCanonicalUnit,
+  unitScale,
   trendOverWindows,
   type ChartPoint,
   type Forecast,
@@ -462,17 +463,40 @@ export class ApplianceService {
     now: Date,
   ): Promise<CumulativeResult> {
     const end = now.getTime();
+    const days = range === "today" ? 1 : range === "7d" ? 7 : 30;
     const start =
       range === "today"
         ? startOfLocalDay(now).getTime()
-        : startOfLocalDayBefore(now, (range === "7d" ? 7 : 30) - 1).getTime();
+        : startOfLocalDayBefore(now, days - 1).getTime();
 
-    // Longer ranges accumulate the very same daily figures behind the "this
-    // week" and "this month" totals, fallbacks included. Reading raw
-    // statistics here instead left the curve empty on installs whose
-    // statistics have not been generated yet, while the totals beside it
-    // showed numbers - the chart said "nothing recorded" about a week the
-    // page had just summarised.
+    const result = (points: ChartPoint[], source: CumulativeResult["source"]): CumulativeResult => ({
+      range,
+      start: points[0]?.t ?? start,
+      end,
+      points,
+      totalKwh: points.at(-1)?.v ?? null,
+      source,
+    });
+
+    // Resolution, finest first. A chart asked for 30 days on an install a day
+    // old should still draw that day properly - the way a five-year stock
+    // chart of a company that listed last month draws last month, rather than
+    // one dot against an empty axis. So take the finest source that actually
+    // has data, and let the axis cover what exists rather than what was asked
+    // for.
+    const periods: StatisticsPeriod[] =
+      range === "today" ? ["5minute", "hour"] : ["hour", "day"];
+
+    for (const period of periods) {
+      const series = await this.#energyStatistics(appliances, new Date(start), new Date(end), period);
+      const combined = sumSeriesByBucket(series).filter((point) => point.t >= start);
+      const points = runningTotal(combined);
+      if (points.length > 1) return result(points, "statistics");
+    }
+
+    // The daily figures behind the "this week" and "this month" totals,
+    // fallbacks included. Coarse, but it covers whole days that finer
+    // statistics may not retain.
     if (range !== "today") {
       const daily: ChartPoint[][] = [];
       for (const appliance of appliances) {
@@ -480,60 +504,55 @@ export class ApplianceService {
       }
       const combined = sumSeriesByBucket(daily).filter((point) => point.t >= start);
       const points = runningTotal(combined);
-      return { range, start, end, points, totalKwh: points.at(-1)?.v ?? null, source: "statistics" };
+      // One point is a dot, not a chart. Fall through to the fine-grained
+      // sources below, which can draw today's curve inside a weekly view.
+      if (points.length > 1) return result(points, "statistics");
     }
-
-    // Finer buckets first: a day of five-minute statistics draws a far more
-    // readable curve than 24 hourly steps.
-    for (const period of ["5minute", "hour"] as StatisticsPeriod[]) {
-      const series = await this.#energyStatistics(appliances, new Date(start), new Date(end), period);
-      const combined = sumSeriesByBucket(series).filter((point) => point.t >= start);
-      const points = runningTotal(combined);
-      if (points.length > 0) {
-        return { range, start, end, points, totalKwh: points.at(-1)?.v ?? null, source: "statistics" };
-      }
-    }
-
-    const empty: CumulativeResult = {
-      range,
-      start,
-      end,
-      points: [],
-      totalKwh: null,
-      source: "statistics",
-    };
 
     // A vendor "energy today" counter is already the curve we want, and it is
     // what the headline figure falls back to as well - so following it here
-    // keeps the chart and the number in agreement.
+    // keeps the chart and the number in agreement. It only covers today, but
+    // one real day beats an empty week.
+    const todayStart = startOfLocalDay(now).getTime();
     const meterIds = appliances
       .map((appliance) => appliance.entities.energyDay)
       .filter((entityId): entityId is string => entityId !== undefined);
 
     if (meterIds.length > 0) {
-      const meterHistory = await this.#source.getHistory(meterIds, new Date(start), new Date(end));
-      const levels = meterIds.map((entityId) =>
-        holdLevel(meterHistory[entityId] ?? [], start, end, CUMULATIVE_BUCKET_MS),
+      const meterHistory = await this.#source.getHistory(
+        meterIds,
+        new Date(todayStart),
+        new Date(end),
       );
-      const points = sumSeriesByBucket(levels);
-      if (points.some((point) => point.v !== null)) {
-        return { range, start, end, points, totalKwh: points.at(-1)?.v ?? null, source: "meter" };
-      }
+      const levels = meterIds.map((entityId) =>
+        holdLevel(
+          meterHistory[entityId] ?? [],
+          todayStart,
+          end,
+          CUMULATIVE_BUCKET_MS,
+          this.#unitScale(entityId, "energy"),
+        ),
+      );
+      const points = sumSeriesByBucket(levels).filter((point) => point.v !== null);
+      if (points.length > 0) return result(points, "meter");
     }
 
     const entityIds = this.#powerEntities(appliances);
-    if (entityIds.length === 0) return empty;
+    if (entityIds.length === 0) return result([], "statistics");
 
-    const history = await this.#source.getHistory(entityIds, new Date(start), new Date(end));
+    const history = await this.#source.getHistory(
+      entityIds,
+      new Date(todayStart),
+      new Date(end),
+    );
     const points = cumulativeEnergy(
       entityIds.map((entityId) => history[entityId] ?? []),
-      start,
+      todayStart,
       end,
       CUMULATIVE_BUCKET_MS,
+      entityIds.map((entityId) => this.#unitScale(entityId, "power")),
     );
-    if (points.length === 0) return empty;
-
-    return { range, start, end, points, totalKwh: points.at(-1)?.v ?? null, source: "history" };
+    return result(points, points.length > 0 ? "history" : "statistics");
   }
 
   /** Per-bucket energy `change` for each appliance's cumulative meter. */
@@ -555,6 +574,14 @@ export class ApplianceService {
         t: point.start,
         v: typeof point.change === "number" ? point.change : null,
       })),
+    );
+  }
+
+  /** Multiplier converting an entity's reported unit to the canonical one. */
+  #unitScale(entityId: string, kind: MeasurementKind): number {
+    return unitScale(
+      this.#source.getCachedState(entityId)?.attributes.unit_of_measurement,
+      kind,
     );
   }
 
