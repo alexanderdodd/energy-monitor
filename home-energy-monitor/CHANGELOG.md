@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0
+
+- Weekly and monthly consumption and cost on the overview, appliance pages
+  and category cards.
+- Fixed the 7d and 30d cumulative charts showing "Nothing recorded yet" on
+  installs without long-term statistics, while the totals above them showed
+  figures for the same period.
+- Today's cumulative chart now follows a vendor "energy today" counter when
+  statistics are unavailable, instead of integrating power, so it matches the
+  daily total.
+
 ## 0.4.0
 
 - The cumulative energy chart now covers today, the last 7 days or the last
