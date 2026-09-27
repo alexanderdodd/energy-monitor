@@ -879,6 +879,39 @@ describe("GET /api/trend", () => {
     }
   });
 
+  it("adds every series together so the household direction is readable", async () => {
+    await configureFridge(current);
+    const body = (await current.app.inject({ url: "/api/trend?period=day" })).json() as {
+      buckets: number[];
+      total: { points: (number | null)[]; changePercent: number | null };
+      series: { points: (number | null)[] }[];
+    };
+
+    expect(body.total.points).toHaveLength(body.buckets.length);
+    // The total is the sum of the parts at every period.
+    body.buckets.forEach((_, position) => {
+      const parts = body.series
+        .map((item) => item.points[position])
+        .filter((value): value is number => value !== null && value !== undefined);
+      const expected = parts.length > 0 ? parts.reduce((a, b) => a + b, 0) : null;
+      if (expected === null) {
+        expect(body.total.points[position]).toBeNull();
+      } else {
+        expect(body.total.points[position]).toBeCloseTo(expected, 3);
+      }
+    });
+  });
+
+  it("measures the total's change between complete periods too", async () => {
+    await configureFridge(current);
+    const body = (await current.app.inject({ url: "/api/trend?period=day" })).json() as {
+      total: { changePercent: number | null };
+    };
+    // Every complete day is identical in the fixture, and the part-finished
+    // day underway must not drag the total into looking like a fall.
+    expect(body.total.changePercent).toBe(0);
+  });
+
   it("rejects an unknown period", async () => {
     expect((await current.app.inject({ url: "/api/trend?period=fortnight" })).statusCode).toBe(400);
   });

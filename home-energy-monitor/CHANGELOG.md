@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.0
+
+- Tooltips in "Usage by period" now show each figure's change from the
+  previous period, as a percentage and in kWh, and a combined total for
+  everything shown.
+- A "Stacked" view where the bar's height is the combined total, so the
+  household's direction is readable without adding the bars up by eye. The
+  legend gained a total row with its own change.
+- Fixed the time axis on the Compare chart repeating the date instead of
+  showing times across today, and showing full timestamps on the 7- and
+  30-day views.
+
 ## 0.12.0
 
 - New "Usage by period" card alongside Compare: each appliance's or

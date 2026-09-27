@@ -34,6 +34,7 @@ const CAP: Record<ComparisonView, number> = {
   lines: MAX_SERIES,
   bars: MAX_SERIES,
   grouped: MAX_SERIES,
+  stacked: MAX_SERIES,
   share: 6,
 };
 

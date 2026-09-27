@@ -160,6 +160,7 @@ const TREND = {
   scope: "appliances",
   period: "day",
   buckets: [1789900000000, 1790000000000],
+  total: { points: [1.8, 1.82], changePercent: 1.1 },
   series: [
     { id: "device:fridge", name: "Fridge", points: [0.8, 0.62], changePercent: -22.4 },
     { id: "device:dryer", name: "Dryer", points: [1.0, 1.2], changePercent: 20 },
@@ -565,6 +566,27 @@ describe("Usage by period", () => {
 
     await user.click(within(card).getByRole("button", { name: "Lines" }));
     expect(within(card).getByTestId("comparison-chart")).toHaveAttribute("data-view", "lines");
+  });
+
+  it("shows the combined total and its direction", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Usage by period" });
+
+    const legend = within(trendCard()).getByRole("list");
+    // The household total, so "are we using more" needs no mental arithmetic.
+    expect(within(legend).getByText("All 2")).toBeInTheDocument();
+    expect(within(legend).getByText("1.82 kWh")).toBeInTheDocument();
+    expect(within(legend).getByText(/▲ 1%/)).toBeInTheDocument();
+  });
+
+  it("can stack the bars so their height is the total", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Usage by period" });
+
+    const card = trendCard();
+    await user.click(within(card).getByRole("button", { name: "Stacked" }));
+    expect(within(card).getByTestId("comparison-chart")).toHaveAttribute("data-view", "stacked");
   });
 
   it("refetches when the period changes", async () => {

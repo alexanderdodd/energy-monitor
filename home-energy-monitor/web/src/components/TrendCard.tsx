@@ -21,6 +21,9 @@ const PERIODS: { period: TrendPeriod; label: string }[] = [
 
 const VIEWS: { view: ComparisonView; label: string }[] = [
   { view: "grouped", label: "Bars" },
+  // Stacking makes the bar's height the combined total, so the whole
+  // household's direction is readable without adding the parts up by eye.
+  { view: "stacked", label: "Stacked" },
   { view: "lines", label: "Lines" },
 ];
 
@@ -55,6 +58,7 @@ export function TrendCard() {
   const buckets = Array.isArray(result.data?.buckets) ? result.data.buckets : [];
   const currency = result.data?.currency ?? "EUR";
   const price = result.data?.electricityPricePerKwh ?? 0;
+  const total = result.data?.total;
 
   // Two periods are the minimum for a comparison to mean anything.
   const comparable = buckets.length > 1;
@@ -118,6 +122,7 @@ export function TrendCard() {
                 colorIndex: index,
               }))}
               range={period}
+              showChange
             />
           </ChartBoundary>
 
@@ -148,6 +153,27 @@ export function TrendCard() {
                 </li>
               );
             })}
+            {total ? (
+              <li className="total">
+                <span className="swatch" aria-hidden="true" />
+                <span className="name">All {series.length}</span>
+                <span className="value">
+                  {formatEnergy(
+                    [...total.points].reverse().find((value) => value !== null) ?? null,
+                  )}
+                </span>
+                <span className="cost">
+                  {total.changePercent === null ? (
+                    <span className="meta">—</span>
+                  ) : (
+                    <span className={total.changePercent > 0 ? "trend up" : "trend down"}>
+                      {total.changePercent > 0 ? "▲" : "▼"}{" "}
+                      {Math.abs(total.changePercent).toFixed(0)}%
+                    </span>
+                  )}
+                </span>
+              </li>
+            ) : null}
           </ul>
 
           <p className="meta">

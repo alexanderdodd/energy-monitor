@@ -34,6 +34,10 @@ from the previous period. The period currently underway is drawn but left out
 of that change, since part of a day next to a whole one always looks like a
 fall.
 
+Hovering a period shows what each appliance used, how that compares with the
+previous period, and the combined total. "Stacked" makes the bar's height
+that total.
+
 **Categories** group appliances by what they are for, so you can read spend by
 activity rather than by device — "Washing" covering the washing machine and
 the dehumidifier, say. Each category shows today's energy and cost, a

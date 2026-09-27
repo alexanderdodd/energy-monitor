@@ -3,7 +3,7 @@ import * as echarts from "echarts/core";
 import { BarChart, LineChart, PieChart } from "echarts/charts";
 import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
-import { formatEnergy, formatTooltipTime } from "../lib/format.ts";
+import { formatEnergy, formatTimeAxis, formatTooltipTime } from "../lib/format.ts";
 import { colorFor } from "../lib/palette.ts";
 
 echarts.use([
@@ -16,7 +16,7 @@ echarts.use([
   CanvasRenderer,
 ]);
 
-export type ComparisonView = "lines" | "bars" | "share" | "grouped";
+export type ComparisonView = "lines" | "bars" | "share" | "grouped" | "stacked";
 
 export interface ComparisonSeries {
   id: string;
@@ -33,9 +33,23 @@ interface Props {
   series: ComparisonSeries[];
   /** How to label the time axis: a clock range, or whole days/weeks/months. */
   range: string;
+  /**
+   * Add each value's change from the previous bucket to the tooltip, plus a
+   * combined total. Only meaningful where buckets are periods in their own
+   * right - a running total's "change" is just its own increment.
+   */
+  showChange?: boolean;
 }
 
 /** Axis and tooltip label for a bucket, given what the axis represents. */
+/** Terse label for the axis, where labels repeat across the width. */
+function axisLabel(timestamp: number, range: string): string {
+  if (range === "today" || range === "24h" || range === "6h") {
+    return formatTimeAxis(timestamp, "24h");
+  }
+  return bucketLabel(timestamp, range);
+}
+
 function bucketLabel(timestamp: number, range: string): string {
   const date = new Date(timestamp);
   if (range === "month") {
@@ -44,7 +58,8 @@ function bucketLabel(timestamp: number, range: string): string {
   if (range === "week") {
     return `w/c ${date.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
   }
-  if (range === "day") {
+  // "day" is the period view; "7d"/"30d" are multi-day ranges bucketed daily.
+  if (range === "day" || range === "7d" || range === "30d") {
     return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
   }
   return formatTooltipTime(timestamp, range);
@@ -59,10 +74,12 @@ function readTheme() {
     surface: dark ? "#1a1e26" : "#ffffff",
     text: dark ? "#eef1f6" : "#10151f",
     muted: dark ? "#9aa5b4" : "#5b6676",
+    warn: dark ? "#f59e5b" : "#c2410c",
+    good: dark ? "#2fbd8f" : "#0d8f6b",
   };
 }
 
-export default function ComparisonChart({ view, buckets, series, range }: Props) {
+export default function ComparisonChart({ view, buckets, series, range, showChange }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
 
@@ -95,6 +112,74 @@ export default function ComparisonChart({ view, buckets, series, range }: Props)
       backgroundColor: theme.surface,
       borderWidth: 0,
       textStyle: { color: theme.text, fontSize: 12 },
+    };
+
+    /** "▲ 12% (+0.18 kWh)" against the previous bucket, or nothing to say. */
+    const delta = (current: number | null, previous: number | null): string => {
+      if (current === null || previous === null) return "";
+      const difference = current - previous;
+      if (Math.abs(difference) < 0.005) {
+        return `<span style="color:${theme.axis}"> · no change</span>`;
+      }
+      const up = difference > 0;
+      // Rising consumption is the unwelcome direction, so the colours run
+      // opposite to the financial convention.
+      const color = up ? theme.warn : theme.good;
+      const percent = previous > 0 ? ` ${Math.abs((difference / previous) * 100).toFixed(0)}%` : "";
+      return `<span style="color:${color}"> · ${up ? "▲" : "▼"}${percent} (${
+        up ? "+" : "−"
+      }${formatEnergy(Math.abs(difference))})</span>`;
+    };
+
+    /** Tooltip for the period views: value, change, and a combined total. */
+    const periodTooltip = (params: unknown) => {
+      const bars = (Array.isArray(params) ? params : [params]) as {
+        axisValue?: string | number;
+        dataIndex?: number;
+        marker?: string;
+        seriesName?: string;
+        value?: number | null;
+      }[];
+      const index = bars[0]?.dataIndex ?? 0;
+      const heading = bucketLabel(Number(bars[0]?.axisValue), range);
+
+      const previousOf = (name?: string): number | null => {
+        if (!showChange || index < 1) return null;
+        const match = colored.find((item) => item.name === name);
+        return match?.points[index - 1] ?? null;
+      };
+
+      const rows = bars
+        .filter((bar) => bar.value !== null && bar.value !== undefined)
+        .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+        .map(
+          (bar) =>
+            `${bar.marker ?? ""} ${bar.seriesName ?? ""} &nbsp; <b>${formatEnergy(
+              bar.value ?? null,
+            )}</b>${delta(bar.value ?? null, previousOf(bar.seriesName))}`,
+        )
+        .join("<br>");
+
+      if (!showChange) return `${heading}<br>${rows}`;
+
+      const sumAt = (position: number): number | null => {
+        const values = colored
+          .map((item) => item.points[position])
+          .filter((value): value is number => value !== null && value !== undefined);
+        return values.length > 0 ? values.reduce((a, b) => a + b, 0) : null;
+      };
+      const total = sumAt(index);
+      const totalRow =
+        total === null
+          ? ""
+          : `<div style="margin-top:6px;padding-top:6px;border-top:1px solid ${
+              theme.split
+            }"><b>All ${colored.length}</b> &nbsp; <b>${formatEnergy(total)}</b>${delta(
+              total,
+              index > 0 ? sumAt(index - 1) : null,
+            )}</div>`;
+
+      return `${heading}<br>${rows}${totalRow}`;
     };
 
     if (view === "lines") {
@@ -136,7 +221,7 @@ export default function ComparisonChart({ view, buckets, series, range }: Props)
               color: theme.axis,
               fontSize: 11,
               hideOverlap: true,
-              formatter: (value: string) => bucketLabel(Number(value), range).split(",")[0],
+              formatter: (value: string) => axisLabel(Number(value), range),
             },
             axisLine: { lineStyle: { color: theme.split } },
             axisTick: { show: false },
@@ -163,7 +248,7 @@ export default function ComparisonChart({ view, buckets, series, range }: Props)
       return;
     }
 
-    if (view === "grouped") {
+    if (view === "grouped" || view === "stacked") {
       instance.setOption(
         {
           animation: false,
@@ -173,26 +258,7 @@ export default function ComparisonChart({ view, buckets, series, range }: Props)
             ...tooltip,
             trigger: "axis",
             axisPointer: { type: "shadow" },
-            formatter: (params: unknown) => {
-              const bars = (Array.isArray(params) ? params : [params]) as {
-                axisValue?: string | number;
-                marker?: string;
-                seriesName?: string;
-                value?: number | null;
-              }[];
-              const heading = bucketLabel(Number(bars[0]?.axisValue), range);
-              const rows = bars
-                .filter((bar) => bar.value !== null && bar.value !== undefined)
-                .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
-                .map(
-                  (bar) =>
-                    `${bar.marker ?? ""} ${bar.seriesName ?? ""} &nbsp; <b>${formatEnergy(
-                      bar.value ?? null,
-                    )}</b>`,
-                )
-                .join("<br>");
-              return `${heading}<br>${rows}`;
-            },
+            formatter: periodTooltip,
           },
           xAxis: {
             type: "category",
@@ -201,7 +267,7 @@ export default function ComparisonChart({ view, buckets, series, range }: Props)
               color: theme.axis,
               fontSize: 11,
               hideOverlap: true,
-              formatter: (value: string) => bucketLabel(Number(value), range),
+              formatter: (value: string) => axisLabel(Number(value), range),
             },
             axisLine: { lineStyle: { color: theme.split } },
             axisTick: { show: false },
@@ -215,6 +281,7 @@ export default function ComparisonChart({ view, buckets, series, range }: Props)
           },
           series: colored.map((item) => ({
             type: "bar",
+            ...(view === "stacked" ? { stack: "total" } : {}),
             name: item.name,
             data: item.points,
             barMaxWidth: 26,
@@ -316,7 +383,7 @@ export default function ComparisonChart({ view, buckets, series, range }: Props)
       },
       { notMerge: true },
     );
-  }, [view, buckets, series, range]);
+  }, [view, buckets, series, range, showChange]);
 
   return (
     <div

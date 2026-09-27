@@ -228,6 +228,7 @@ export interface TrendResult {
   buckets: number[];
   /** The period underway, which is only part finished. */
   inProgressFrom: number | null;
+  total: { points: (number | null)[]; changePercent: number | null };
   series: TrendSeries[];
   currency: string;
   electricityPricePerKwh: number;

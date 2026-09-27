@@ -211,6 +211,11 @@ export interface TrendResult {
   period: TrendPeriod;
   buckets: number[];
   /**
+   * Everything added together per period, so the question "is the house using
+   * more" can be answered without summing four series by eye.
+   */
+  total: { points: (number | null)[]; changePercent: number | null };
+  /**
    * The bucket for the period currently underway, which is only part
    * finished. Kept in the chart, but excluded from the change figure and
    * flagged so the UI can say so.
@@ -954,20 +959,17 @@ export class ApplianceService {
 
     const series: TrendSeries[] = items.map((item, index) => {
       const points = values[index] ?? [];
-      // Only complete periods are comparable.
-      const complete = buckets
-        .map((bucket, position) => ({ bucket, value: points[position] ?? null }))
-        .filter((entry) => entry.bucket !== inProgressFrom && entry.value !== null)
-        .map((entry) => entry.value as number);
-
-      const previous = complete.at(-2);
-      const latest = complete.at(-1);
-      const changePercent =
-        previous !== undefined && latest !== undefined && previous > 0
-          ? roundTo(((latest - previous) / previous) * 100, 1)
-          : null;
-
+      const changePercent = changeBetweenComplete(buckets, points, inProgressFrom);
       return { id: item.id, name: item.name, points, changePercent };
+    });
+
+    const totalPoints = buckets.map((_, position) => {
+      const contributions = series
+        .map((item) => item.points[position])
+        .filter((value): value is number => value !== null && value !== undefined);
+      return contributions.length > 0
+        ? roundTo(contributions.reduce((a, b) => a + b, 0), 4)
+        : null;
     });
 
     return {
@@ -975,6 +977,7 @@ export class ApplianceService {
       period,
       buckets,
       inProgressFrom,
+      total: { points: totalPoints, changePercent: changeBetweenComplete(buckets, totalPoints, inProgressFrom) },
       series,
       currency: config.settings.currency,
       electricityPricePerKwh: config.settings.electricityPricePerKwh,
@@ -990,6 +993,28 @@ export class ApplianceService {
 
 function round6(value: number | null): number | null {
   return value === null ? null : roundTo(value, 6);
+}
+
+/**
+ * Percentage change between the last two complete periods.
+ *
+ * The period underway is skipped: part of a day measured against a whole one
+ * always looks like a fall.
+ */
+function changeBetweenComplete(
+  buckets: number[],
+  points: (number | null)[],
+  inProgressFrom: number | null,
+): number | null {
+  const complete = buckets
+    .map((bucket, position) => ({ bucket, value: points[position] ?? null }))
+    .filter((entry) => entry.bucket !== inProgressFrom && entry.value !== null)
+    .map((entry) => entry.value as number);
+
+  const previous = complete.at(-2);
+  const latest = complete.at(-1);
+  if (previous === undefined || latest === undefined || previous <= 0) return null;
+  return roundTo(((latest - previous) / previous) * 100, 1);
 }
 
 /** True when any appliance is a member of more than one category. */

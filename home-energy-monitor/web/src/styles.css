@@ -856,3 +856,18 @@ a:focus-visible {
   .comparison-chart { height: 260px; }
   .comparison .head-right { gap: 8px; }
 }
+
+.series-legend li.total {
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+  margin-top: 4px;
+  padding-top: 10px;
+  font-weight: 600;
+}
+
+.series-legend li.total .swatch {
+  background: var(--text-faint);
+  opacity: 0.35;
+}
+
+.series-legend li.total .name { color: var(--text); }
