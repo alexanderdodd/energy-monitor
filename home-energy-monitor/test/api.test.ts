@@ -736,6 +736,75 @@ describe("cumulative curves", () => {
   });
 });
 
+describe("GET /api/compare", () => {
+  it("puts every appliance on one shared axis", async () => {
+    await configureFridge(current);
+    const response = await current.app.inject({ url: "/api/compare?scope=appliances" });
+    expect(response.statusCode).toBe(200);
+
+    const body = response.json() as {
+      scope: string;
+      range: string;
+      buckets: number[];
+      series: { id: string; name: string; points: (number | null)[]; totalKwh: number | null }[];
+      totalKwh: number;
+      currency: string;
+    };
+
+    expect(body.scope).toBe("appliances");
+    expect(body.series.map((item) => item.name)).toEqual(["Fridge", "Dryer"]);
+    // Every series shares the axis, so points line up for comparison.
+    for (const item of body.series) {
+      expect(item.points).toHaveLength(body.buckets.length);
+    }
+    expect(body.currency).toBe("EUR");
+  });
+
+  it("agrees with each appliance's own page", async () => {
+    await configureFridge(current);
+    const compare = (
+      await current.app.inject({ url: "/api/compare?scope=appliances" })
+    ).json() as { series: { id: string; totalKwh: number }[] };
+    const own = (
+      await current.app.inject({ url: "/api/appliances/device:dev-fridge/cumulative" })
+    ).json() as { totalKwh: number };
+
+    const fridge = compare.series.find((item) => item.id === "device:dev-fridge")!;
+    expect(fridge.totalKwh).toBeCloseTo(own.totalKwh, 4);
+  });
+
+  it("compares categories and reaches the same household total", async () => {
+    await configureFridge(current);
+    await current.app.inject({
+      method: "PUT",
+      url: "/api/categories",
+      payload: {
+        categories: [
+          { name: "Cold", applianceIds: ["device:dev-fridge"] },
+          { name: "Laundry", applianceIds: ["device:dev-dryer"] },
+        ],
+      },
+    });
+
+    const body = (
+      await current.app.inject({ url: "/api/compare?scope=categories&range=7d" })
+    ).json() as { range: string; series: { name: string }[]; totalKwh: number };
+
+    expect(body.range).toBe("7d");
+    expect(body.series.map((item) => item.name)).toEqual(["Cold", "Laundry"]);
+    expect(body.totalKwh).toBeGreaterThan(0);
+  });
+
+  it("rejects an unknown scope or range", async () => {
+    expect(
+      (await current.app.inject({ url: "/api/compare?scope=nope" })).statusCode,
+    ).toBe(400);
+    expect(
+      (await current.app.inject({ url: "/api/compare?range=99y" })).statusCode,
+    ).toBe(400);
+  });
+});
+
 describe("ingress guard", () => {
   it("refuses requests that did not come through Home Assistant", async () => {
     const guarded = await harness(true);

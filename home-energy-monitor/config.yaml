@@ -1,6 +1,6 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Home Energy Monitor
-version: "0.10.0"
+version: "0.11.0"
 slug: home_energy_monitor
 description: A better appliance energy dashboard for Home Assistant
 url: "https://github.com/alexanderdodd/energy-monitor/tree/main/home-energy-monitor"

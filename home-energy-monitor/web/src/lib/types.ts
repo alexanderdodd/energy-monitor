@@ -192,6 +192,27 @@ export interface CumulativeResult {
   source: "statistics" | "meter" | "history";
 }
 
+export type CompareScope = "appliances" | "categories";
+
+export interface CompareSeries {
+  id: string;
+  name: string;
+  points: (number | null)[];
+  totalKwh: number | null;
+  cost: number | null;
+}
+
+export interface CompareResult {
+  scope: CompareScope;
+  range: CumulativeRange;
+  start: number;
+  end: number;
+  buckets: number[];
+  series: CompareSeries[];
+  totalKwh: number | null;
+  currency: string;
+}
+
 export interface Settings {
   electricityPricePerKwh: number;
   currency: string;

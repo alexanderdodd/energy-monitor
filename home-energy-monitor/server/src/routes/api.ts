@@ -3,7 +3,12 @@ import { log } from "../logger.ts";
 import { discoverAppliances } from "../ha/discovery.ts";
 import { isHistoryRange } from "../ha/history.ts";
 import type { HaSource } from "../ha/types.ts";
-import { isCumulativeRange, type ApplianceService, type CumulativeRange } from "../appliances/service.ts";
+import {
+  isCompareScope,
+  isCumulativeRange,
+  type ApplianceService,
+  type CumulativeRange,
+} from "../appliances/service.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { LiveBroadcaster } from "../live.ts";
 
@@ -187,6 +192,26 @@ export function registerApiRoutes(app: FastifyInstance, deps: ApiDependencies): 
         (range) => service.getCategoryCumulative(request.params.id, range),
         reply,
       ),
+  );
+
+  app.get<{ Querystring: { scope?: string; range?: string } }>(
+    "/api/compare",
+    async (request, reply) => {
+      const scope = request.query.scope ?? "appliances";
+      const range = request.query.range ?? "today";
+      if (!isCompareScope(scope)) {
+        return reply.code(400).send({ error: "scope must be appliances or categories" });
+      }
+      if (!isCumulativeRange(range)) {
+        return reply.code(400).send({ error: "range must be one of today, 7d, 30d" });
+      }
+      try {
+        return await service.compare(scope, range);
+      } catch (error) {
+        log.warning(`Could not build the comparison: ${(error as Error).message}`);
+        return reply.code(503).send({ error: "Could not reach Home Assistant" });
+      }
+    },
   );
 
   app.get("/api/summary", async (_request, reply) => {

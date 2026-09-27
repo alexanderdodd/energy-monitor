@@ -264,6 +264,25 @@ That shape drives two rules:
 The mock reproduces this shape: profiles expose a monthly counter, and the
 washing machine reports mixed units.
 
+## Chart colour is computed, not chosen
+
+`web/src/lib/palette.ts` holds a categorical palette that was **validated, not
+picked by eye**: both light and dark pass the lightness band, chroma floor,
+adjacent-pair colour-vision separation and normal-vision floor against this
+app's surfaces. Rules that come with it:
+
+- **Assign hues in the fixed slot order, keyed to the entity's own index** -
+  never to its rank. Sorting by size or switching range must not repaint a
+  series.
+- **Never invent a ninth colour.** Past the eighth slot, fold into "Other".
+  The donut caps lower still, at six, because part-to-whole is only readable
+  at a glance with a handful of segments.
+- Three light-mode slots sit under 3:1 contrast on white, so the **relief
+  rule** applies: every chart using this palette ships a legend naming each
+  series with its value, and bars are directly labelled. Identity never rests
+  on colour alone.
+- Re-run the validator before changing any hex. Do not reason about it.
+
 ## Diagnosing a wrong number
 
 A wrong figure is close to undiagnosable from the dashboard: "0.21" on a

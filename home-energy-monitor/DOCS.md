@@ -22,6 +22,11 @@ the air fryer on and the number moves within a couple of seconds.
 the last 7 days, and estimates for the month and year. The power chart covers
 6 hours, 24 hours, 7 days or 30 days; below it, a bar chart of daily energy.
 
+**Compare** puts every appliance, or every category, on one set of axes.
+Choose the period - today, 7 days or 30 days - and the view: how each one
+builds up over time, ranked totals, or each one's share of the whole. The
+numbers are the same ones the individual pages show.
+
 **Categories** group appliances by what they are for, so you can read spend by
 activity rather than by device — "Washing" covering the washing machine and
 the dehumidifier, say. Each category shows today's energy and cost, a

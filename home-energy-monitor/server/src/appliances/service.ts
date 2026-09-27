@@ -9,6 +9,7 @@ import {
 import type { ConnectionStatus, HaSource, StatisticsPeriod } from "../ha/types.ts";
 import type { ConfigStore } from "../config/store.ts";
 import {
+  alignCumulative,
   costOf,
   cumulativeEnergy,
   holdLevel,
@@ -153,6 +154,33 @@ export interface SensorDiagnostic {
   /** The value after unit conversion, and the unit it is now in. */
   converted: number | null;
   convertedUnit: string | null;
+}
+
+export type CompareScope = "appliances" | "categories";
+
+export function isCompareScope(value: string): value is CompareScope {
+  return value === "appliances" || value === "categories";
+}
+
+export interface CompareSeries {
+  id: string;
+  name: string;
+  /** Running kWh total at each shared bucket; null before the first reading. */
+  points: (number | null)[];
+  totalKwh: number | null;
+  cost: number | null;
+}
+
+export interface CompareResult {
+  scope: CompareScope;
+  range: CumulativeRange;
+  start: number;
+  end: number;
+  /** Shared time axis for every series. */
+  buckets: number[];
+  series: CompareSeries[];
+  totalKwh: number | null;
+  currency: string;
 }
 
 export interface ApplianceDetail extends ApplianceReading {
@@ -775,6 +803,66 @@ export class ApplianceService {
       .enabledAppliances()
       .filter((appliance) => category.applianceIds.includes(appliance.id));
     return this.#cumulativeFor(members, range, now);
+  }
+
+  /**
+   * Every appliance, or every category, on one axis for comparison.
+   *
+   * Each series is the same running total the individual pages show, so a
+   * figure here always matches the one on that appliance's own page.
+   */
+  async compare(
+    scope: CompareScope,
+    range: CumulativeRange = "today",
+    now = new Date(),
+  ): Promise<CompareResult> {
+    const config = this.#store.get();
+    const appliances = this.#store.enabledAppliances();
+
+    const items: { id: string; name: string; members: Appliance[] }[] =
+      scope === "categories"
+        ? config.categories.map((category) => ({
+            id: category.id,
+            name: category.name,
+            members: appliances.filter((appliance) =>
+              category.applianceIds.includes(appliance.id),
+            ),
+          }))
+        : appliances.map((appliance) => ({
+            id: appliance.id,
+            name: appliance.name,
+            members: [appliance],
+          }));
+
+    const curves: CumulativeResult[] = [];
+    for (const item of items) {
+      curves.push(await this.#cumulativeFor(item.members, range, now));
+    }
+
+    const { buckets, values } = alignCumulative(curves.map((curve) => curve.points));
+    const price = config.settings.electricityPricePerKwh;
+
+    const series: CompareSeries[] = items.map((item, index) => {
+      const totalKwh = curves[index]?.totalKwh ?? null;
+      return {
+        id: item.id,
+        name: item.name,
+        points: values[index] ?? [],
+        totalKwh,
+        cost: costOf(totalKwh, price),
+      };
+    });
+
+    return {
+      scope,
+      range,
+      start: buckets[0] ?? startOfLocalDay(now).getTime(),
+      end: now.getTime(),
+      buckets,
+      series,
+      totalKwh: sumValues(series.map((item) => item.totalKwh)),
+      currency: config.settings.currency,
+    };
   }
 
   async getHistory(id: string, range: HistoryRange, now = new Date()): Promise<HistoryResult | null> {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0
+
+- New "Compare" card on the overview: every appliance, or every category, on
+  one set of axes. Switch between appliances and categories, between today,
+  7 days and 30 days, and between three views - a multi-series line chart of
+  how each builds up over the range, ranked total bars, and a share donut.
+- Figures in the comparison are the same running totals the individual pages
+  show, so the two can never disagree.
+
 ## 0.10.0
 
 - Weekly and monthly figures are now a plain sum of the energy actually

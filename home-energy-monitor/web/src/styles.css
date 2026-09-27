@@ -799,3 +799,60 @@ a:focus-visible {
   font-size: 12px;
   color: var(--text-muted);
 }
+
+/* ------------------------------------------------------------- comparison */
+
+.comparison .chart-head { align-items: flex-start; }
+
+.comparison .head-right { gap: 10px; }
+
+.comparison-chart { height: 320px; }
+
+.series-legend {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 2px 20px;
+}
+
+.series-legend li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto auto;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.series-legend .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.series-legend .name {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.series-legend .value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.series-legend .cost {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 56px;
+  text-align: right;
+}
+
+@media (max-width: 560px) {
+  .comparison-chart { height: 260px; }
+  .comparison .head-right { gap: 8px; }
+}

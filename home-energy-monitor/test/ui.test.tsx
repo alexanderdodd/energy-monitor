@@ -9,6 +9,12 @@ import { App } from "../web/src/App.tsx";
 vi.mock("../web/src/components/PowerChart.tsx", () => ({
   default: ({ label }: { label: string }) => <div data-testid="chart" aria-label={label} />,
 }));
+
+vi.mock("../web/src/components/ComparisonChart.tsx", () => ({
+  default: ({ view, series }: { view: string; series: { name: string }[] }) => (
+    <div data-testid="comparison-chart" data-view={view} data-series={series.length} />
+  ),
+}));
 import { StubEventSource } from "./setup.ts";
 
 const SUMMARY = {
@@ -136,6 +142,20 @@ const CUMULATIVE = {
   source: "statistics",
 };
 
+const COMPARE = {
+  scope: "appliances",
+  range: "today",
+  start: 1790000000000,
+  end: 1790040000000,
+  buckets: [1790000000000, 1790000300000],
+  series: [
+    { id: "device:fridge", name: "Fridge", points: [0.3, 0.62], totalKwh: 0.62, cost: 0.19 },
+    { id: "device:dryer", name: "Dryer", points: [null, 1.2], totalKwh: 1.2, cost: 0.36 },
+  ],
+  totalKwh: 1.82,
+  currency: "EUR",
+};
+
 const APPLIANCES = {
   appliances: [
     {
@@ -196,6 +216,7 @@ beforeEach(() => {
     requests.push({ url, init });
     // Match the more specific paths first: "api/summary/cumulative" also
     // contains "api/summary".
+    if (url.includes("/api/compare")) return respond(COMPARE);
     if (url.includes("/cumulative")) return respond(CUMULATIVE);
     if (url.includes("/api/summary")) return respond(SUMMARY);
     if (url.includes("/api/settings")) return respond(SETTINGS);
@@ -378,6 +399,7 @@ describe("Energy today curve", () => {
     vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       requests.push({ url, init });
+      if (url.includes("/api/compare")) return respond(COMPARE);
       if (url.includes("/cumulative")) return respond({ ...CUMULATIVE, source: "history" });
       if (url.includes("/api/summary")) return respond(SUMMARY);
       if (url.includes("/api/settings")) return respond(SETTINGS);
@@ -410,6 +432,7 @@ describe("Energy today curve", () => {
     vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       requests.push({ url, init });
+      if (url.includes("/api/compare")) return respond(COMPARE);
       if (url.includes("/cumulative")) {
         return respond({ range: "today", start: 0, end: 0, points: [], totalKwh: null, source: "statistics" });
       }
@@ -423,6 +446,69 @@ describe("Energy today curve", () => {
 
     render(<App />);
     expect(await screen.findByText("Nothing recorded yet.")).toBeInTheDocument();
+  });
+});
+
+describe("Compare", () => {
+  function compareCard(): HTMLElement {
+    const heading = screen.getByRole("heading", { name: "Compare" });
+    return heading.closest(".chart-card") as HTMLElement;
+  }
+
+  it("names every series and its value beside a colour swatch", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Compare" });
+
+    const card = compareCard();
+    await waitFor(() => expect(within(card).getByTestId("comparison-chart")).toBeInTheDocument());
+
+    // Identity never rests on colour: the legend spells out name and value.
+    const legend = within(card).getByRole("list");
+    expect(within(legend).getByText("Fridge")).toBeInTheDocument();
+    expect(within(legend).getByText("0.62 kWh")).toBeInTheDocument();
+    expect(within(legend).getByText("Dryer")).toBeInTheDocument();
+    expect(within(legend).getByText("1.20 kWh")).toBeInTheDocument();
+  });
+
+  it("refetches when the range changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Compare" });
+
+    await waitFor(() =>
+      expect(requests.some((r) => r.url.includes("scope=appliances&range=today"))).toBe(true),
+    );
+
+    await user.click(within(compareCard()).getByRole("button", { name: "7 days" }));
+    await waitFor(() =>
+      expect(requests.some((r) => r.url.includes("scope=appliances&range=7d"))).toBe(true),
+    );
+  });
+
+  it("switches between appliances and categories", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Compare" });
+
+    await user.click(within(compareCard()).getByRole("button", { name: "Categories" }));
+    await waitFor(() =>
+      expect(requests.some((r) => r.url.includes("scope=categories"))).toBe(true),
+    );
+  });
+
+  it("switches chart type without refetching", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Compare" });
+
+    const card = compareCard();
+    await waitFor(() => expect(within(card).getByTestId("comparison-chart")).toBeInTheDocument());
+    const before = requests.length;
+
+    await user.click(within(card).getByRole("button", { name: "Share" }));
+    expect(within(card).getByTestId("comparison-chart")).toHaveAttribute("data-view", "share");
+    // The data is the same; only the drawing changes.
+    expect(requests.length).toBe(before);
   });
 });
 

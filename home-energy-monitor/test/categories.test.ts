@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runningTotal, sumSeriesByBucket, trendOverWindows } from "../server/src/appliances/calculations.ts";
+import { alignCumulative, runningTotal, sumSeriesByBucket, trendOverWindows } from "../server/src/appliances/calculations.ts";
 import { hasOverlap } from "../server/src/appliances/service.ts";
 import { sanitizeConfig, slugify } from "../server/src/config/store.ts";
 
@@ -214,5 +214,36 @@ describe("runningTotal", () => {
   it("returns nothing when no bucket had a value", () => {
     expect(runningTotal([{ t: 1, v: null }])).toEqual([]);
     expect(runningTotal([])).toEqual([]);
+  });
+});
+
+describe("alignCumulative", () => {
+  it("puts differently bucketed series on one axis", () => {
+    const { buckets, values } = alignCumulative([
+      [
+        { t: 10, v: 1 },
+        { t: 30, v: 3 },
+      ],
+      [
+        { t: 20, v: 5 },
+        { t: 30, v: 6 },
+      ],
+    ]);
+
+    expect(buckets).toEqual([10, 20, 30]);
+    // Running totals hold their last value across buckets they lack.
+    expect(values[0]).toEqual([1, 1, 3]);
+    // The second series reported nothing at t=10, which is not zero.
+    expect(values[1]).toEqual([null, 5, 6]);
+  });
+
+  it("handles a series with no points at all", () => {
+    const { buckets, values } = alignCumulative([[{ t: 1, v: 2 }], []]);
+    expect(buckets).toEqual([1]);
+    expect(values[1]).toEqual([null]);
+  });
+
+  it("returns an empty axis when nothing was recorded", () => {
+    expect(alignCumulative([])).toEqual({ buckets: [], values: [] });
   });
 });

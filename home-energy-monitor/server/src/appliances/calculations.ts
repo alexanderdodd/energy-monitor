@@ -407,6 +407,41 @@ export function runningTotal(points: ChartPoint[]): ChartPoint[] {
   return sawAnything ? result : [];
 }
 
+/**
+ * Put several cumulative series on one shared time axis.
+ *
+ * Each series may be bucketed differently - one appliance's figures can come
+ * from statistics and another's from a counter - but comparing them needs a
+ * single axis. Because the values are running totals, a series holds its last
+ * value forward across buckets it has no point for, and stays null before its
+ * first reading rather than starting at a zero it never reported.
+ */
+export function alignCumulative(series: ChartPoint[][]): {
+  buckets: number[];
+  values: (number | null)[][];
+} {
+  const buckets = [...new Set(series.flatMap((points) => points.map((point) => point.t)))].sort(
+    (a, b) => a - b,
+  );
+
+  const values = series.map((points) => {
+    const sorted = [...points].sort((a, b) => a.t - b.t);
+    let index = 0;
+    let current: number | null = null;
+
+    return buckets.map((bucket) => {
+      while (index < sorted.length && sorted[index]!.t <= bucket) {
+        const value = sorted[index]!.v;
+        if (value !== null) current = value;
+        index += 1;
+      }
+      return current;
+    });
+  });
+
+  return { buckets, values };
+}
+
 /** Local-time midnight at the start of the day containing `date`. */
 export function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());

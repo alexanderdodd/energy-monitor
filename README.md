@@ -13,6 +13,8 @@ the data Home Assistant already has.
 - **History charts** over 6 hours, 24 hours, 7 days and 30 days, plus a
   cumulative "energy used" curve over today, 7 days or 30 days.
 - **Estimates** for monthly and yearly use, clearly labelled as estimates.
+- **Comparison charts** - lines, ranked bars and share - across appliances or
+  categories, over today, 7 days or 30 days.
 - **Categories** grouping appliances by activity — what "Washing" costs this
   week, and whether it is going up.
 - **Automatic discovery** — no typing entity IDs.
