@@ -76,7 +76,13 @@ dashboard behind your back.
   WebSocket API as states change. Nothing is polled.
 - **Energy and cost** — from Home Assistant's long-term statistics, using the
   change in each appliance's cumulative energy meter per day. This is the same
-  data the built-in Energy dashboard uses, so the figures agree.
+  data the built-in Energy dashboard uses, so the figures agree. Plugs with no
+  lifetime meter have no statistics; for those, each day's total is recovered
+  from the "energy today" counter's recorded history.
+- **Weekly and monthly totals** — a plain sum of the days measured. They
+  count what this app has recorded, not a plug's internal month-to-date
+  counter, which would include energy used before monitoring began. A new
+  install therefore shows small figures that grow as history accumulates.
 - **6h / 24h charts** — raw recorder history, averaged into buckets weighted
   by how long each reading was held.
 - **7d / 30d charts** — Home Assistant's pre-aggregated statistics, which is

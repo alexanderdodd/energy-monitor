@@ -56,23 +56,6 @@ interface DailyEnergy {
   fromStatistics: boolean;
 }
 
-/** Local-day timestamps present in a series, for checking period coverage. */
-function daysCovered(points: ChartPoint[]): Set<number> {
-  return new Set(points.filter((point) => point.v !== null).map((point) => point.t));
-}
-
-/** Every local-day start from `from` up to and including today. */
-function daysBetween(from: Date, now: Date): number[] {
-  const days: number[] = [];
-  const cursor = startOfLocalDay(from);
-  const last = startOfLocalDay(now).getTime();
-  while (cursor.getTime() <= last) {
-    days.push(cursor.getTime());
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return days;
-}
-
 interface CachedEnergy {
   fetchedAt: number;
   daily: DailyEnergy;
@@ -314,26 +297,18 @@ export class ApplianceService {
     now: Date,
   ): Promise<{ daily: DailyEnergy; today: number | null; week: number | null; month: number | null }> {
     const daily = await this.#dailyEnergy(appliance, now);
-    const today = sumDailyEnergy(daily.points, now);
-    const covered = daysCovered(daily.points);
 
-    // A period is only reported when every one of its days is accounted for.
-    // Summing a partial window would quietly present missing days as zero.
-    const sumIfComplete = (from: Date): number | null => {
-      const needed = daysBetween(from, now);
-      if (!needed.every((day) => covered.has(day))) return null;
-      return sumDailyEnergy(daily.points, from);
-    };
-
-    const monthFromHistory = daily.fromStatistics ? sumIfComplete(startOfLocalMonth(now)) : null;
-
+    // A plain sum of the days actually measured. Two earlier attempts got
+    // this wrong in opposite directions: reading the vendor's monthly
+    // counter reported energy used before monitoring ever began, and
+    // refusing any period without a complete record blanked the week out
+    // entirely. What the dashboard is for is the energy it has measured, so
+    // that is what it adds up.
     return {
       daily,
-      today,
-      week: daily.fromStatistics ? sumIfComplete(startOfLocalDayBefore(now, 6)) : null,
-      // The vendor's monthly counter reaches further back than the recorder
-      // does, so it fills in when history cannot cover the whole month.
-      month: monthFromHistory ?? this.#measurement(appliance, "energyMonth", "energy"),
+      today: sumDailyEnergy(daily.points, now),
+      week: sumDailyEnergy(daily.points, startOfLocalDayBefore(now, 6)),
+      month: sumDailyEnergy(daily.points, startOfLocalMonth(now)),
     };
   }
 

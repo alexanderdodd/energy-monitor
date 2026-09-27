@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.0
+
+- Weekly and monthly figures are now a plain sum of the energy actually
+  measured, for every appliance and category.
+- Stopped reporting the plug's own monthly counter, which counts from the
+  start of the calendar month and so included energy used before monitoring
+  began - showing 8.54 kWh where about 2 kWh had been measured.
+- Periods that reach further back than the records do are no longer blanked
+  out; they show the days there are.
+
 ## 0.9.0
 
 - Daily totals are now recovered from a plug's "energy today" counter by

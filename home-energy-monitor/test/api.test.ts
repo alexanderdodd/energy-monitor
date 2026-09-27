@@ -491,20 +491,20 @@ describe("categories", () => {
   });
 });
 
-describe("an appliance with only vendor counters and no statistics", () => {
-  // Exactly the shape a SONOFF plug reports through SonoffLAN: daily and
-  // monthly counters, no lifetime total, and no long-term statistics yet.
+describe("an appliance with only vendor counters", () => {
+  // The shape a SONOFF plug reports through SonoffLAN: daily and monthly
+  // counters, no lifetime total, and so no long-term statistics.
   async function configureCounterOnly(h: Harness) {
     clearStatistics(h);
     // No recorded history for the daily counter either, so today's reading is
     // genuinely all that is known.
     h.source.options.history = {};
-    h.source.setState("sensor.fridge_energy_day", "0.0", {
+    h.source.setState("sensor.fridge_energy_day", "1.2", {
       device_class: "energy",
       state_class: "total_increasing",
       unit_of_measurement: "kWh",
     });
-    h.source.setState("sensor.fridge_energy_month", "1.86", {
+    h.source.setState("sensor.fridge_energy_month", "8.54", {
       device_class: "energy",
       state_class: "total_increasing",
       unit_of_measurement: "kWh",
@@ -530,37 +530,29 @@ describe("an appliance with only vendor counters and no statistics", () => {
     });
   }
 
-  it("uses the monthly counter instead of reporting zero for the month", async () => {
+  it("counts only what it has measured, not the plug's own month-to-date", async () => {
     await configureCounterOnly(current);
     const body = (
       await current.app.inject({ url: "/api/appliances/device:dev-fridge" })
-    ).json() as { energyMonthKwh: number; costMonth: number };
+    ).json() as { energyTodayKwh: number; energyWeekKwh: number; energyMonthKwh: number };
 
-    // The device says 1.86 kWh this month; reporting 0.00 contradicted it.
-    expect(body.energyMonthKwh).toBe(1.86);
-    expect(body.costMonth).toBe(0.56);
+    // The plug's monthly counter says 8.54 kWh, but most of that was used
+    // before monitoring began. Reporting it as "this month" answered a
+    // different question from the one the dashboard asks.
+    expect(body.energyTodayKwh).toBeCloseTo(1.2, 3);
+    expect(body.energyWeekKwh).toBeCloseTo(1.2, 3);
+    expect(body.energyMonthKwh).toBeCloseTo(1.2, 3);
   });
 
-  it("says the week is unknown rather than inventing a zero", async () => {
-    await configureCounterOnly(current);
-    const body = (
-      await current.app.inject({ url: "/api/appliances/device:dev-fridge" })
-    ).json() as { energyTodayKwh: number; energyWeekKwh: number | null; hasDailyHistory: boolean };
-
-    expect(body.hasDailyHistory).toBe(false);
-    // Today is known from the daily counter.
-    expect(body.energyTodayKwh).toBe(0);
-    // Six earlier days nobody has any record of must not read as 0.00.
-    expect(body.energyWeekKwh).toBeNull();
-  });
-
-  it("carries the same distinction into the household totals", async () => {
+  it("gives a figure for a period it only partly covers", async () => {
     await configureCounterOnly(current);
     const body = (await current.app.inject({ url: "/api/summary" })).json() as {
-      totals: { energyWeekKwh: number | null; energyMonthKwh: number | null };
+      totals: { energyWeekKwh: number; energyMonthKwh: number };
     };
-    expect(body.totals.energyWeekKwh).toBeNull();
-    expect(body.totals.energyMonthKwh).toBe(1.86);
+    // One day measured out of seven still adds up to that one day, rather
+    // than refusing to answer.
+    expect(body.totals.energyWeekKwh).toBeCloseTo(1.2, 3);
+    expect(body.totals.energyMonthKwh).toBeCloseTo(1.2, 3);
   });
 });
 
@@ -819,15 +811,16 @@ describe("recovering daily totals from a daily counter", () => {
     expect(body.energyWeekKwh).toBeCloseTo(7 * 1.2, 3);
   });
 
-  it("still refuses a week it cannot fully account for", async () => {
+  it("sums the days it has when the window reaches further back", async () => {
     await configureCounterWithHistory(current, 3, 1.2);
     const body = (
       await current.app.inject({ url: "/api/appliances/device:dev-fridge" })
-    ).json() as { energyWeekKwh: number | null; energyTodayKwh: number };
+    ).json() as { energyWeekKwh: number; energyTodayKwh: number };
 
     expect(body.energyTodayKwh).toBeCloseTo(1.2, 3);
-    // Only three days recorded; the other four are unknown, not zero.
-    expect(body.energyWeekKwh).toBeNull();
+    // Three days measured out of the seven asked for; the answer is those
+    // three days, not a blank.
+    expect(body.energyWeekKwh).toBeCloseTo(3 * 1.2, 3);
   });
 
   it("fills the daily energy chart that had nothing to draw before", async () => {

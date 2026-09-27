@@ -240,18 +240,26 @@ That shape drives two rules:
   any record of. `#energyPeriods` returns null for the week in that case, and
   the UI shows a dash. Unknown is not zero - the same rule the per-sensor
   code follows, applied to aggregates.
-- **Use the monthly counter.** Ignoring `energy_month` meant reporting
-  `0.00 kWh` for a month the device itself said was 1.86 kWh.
+- **Do not report the plug's own monthly counter.** It counts from the start
+  of the calendar month, including everything used before the plug was added
+  to Home Assistant, so it answers a different question from the one the
+  dashboard asks. On a two-day-old install it read 8.54 kWh against about
+  2 kWh actually measured. `energy_month` stays mapped and visible in the
+  sensor panel, but no figure is derived from it.
 - **A daily counter's history is a per-day record.** It climbs through the day
   and resets at midnight, so the highest value within each local day is that
   day's total. `buildDailyEnergyFromCounter` recovers real daily figures this
   way, which is what finally fills the daily chart, the weekly figures and
   trends for these plugs. Bounded by recorder retention (ten days by
   default), so check coverage before claiming a period.
-- **Claim a period only when every day in it is accounted for.**
-  `#energyPeriods` checks that each local day in the window has a value; a
-  partial window returns null. Summing what happens to be present silently
-  reports missing days as zero.
+- **Weekly and monthly figures are a plain sum of the days measured.** Not
+  the vendor counter, and not blanked out when the window reaches further
+  back than the records do. An install with two days of history shows those
+  two days under "this week"; that is the energy the app measured, which is
+  what it is for. An earlier attempt refused any period without a complete
+  record and blanked the week entirely - correct by the "unknown is not zero"
+  rule applied to a single sensor, wrong as an answer to "what have I used".
+  Keep that rule where it belongs: individual readings, never aggregates.
 
 The mock reproduces this shape: profiles expose a monthly counter, and the
 washing machine reports mixed units.
