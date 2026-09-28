@@ -572,11 +572,15 @@ describe("Usage by period", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Usage by period" });
 
-    const legend = within(trendCard()).getByRole("list");
+    // The heading renders before the data arrives, so wait for the legend's
+    // content rather than assuming it is already there.
+    const card = trendCard();
+    const total = await within(card).findByText("All 2");
+    const row = total.closest("li") as HTMLElement;
+
     // The household total, so "are we using more" needs no mental arithmetic.
-    expect(within(legend).getByText("All 2")).toBeInTheDocument();
-    expect(within(legend).getByText("1.82 kWh")).toBeInTheDocument();
-    expect(within(legend).getByText(/▲ 1%/)).toBeInTheDocument();
+    expect(within(row).getByText("1.82 kWh")).toBeInTheDocument();
+    expect(within(row).getByText(/▲ 1%/)).toBeInTheDocument();
   });
 
   it("can stack the bars so their height is the total", async () => {
@@ -585,6 +589,10 @@ describe("Usage by period", () => {
     await screen.findByRole("heading", { name: "Usage by period" });
 
     const card = trendCard();
+    // The controls render before the data does, so the chart may not exist
+    // yet at the moment of the click.
+    await within(card).findByTestId("comparison-chart");
+
     await user.click(within(card).getByRole("button", { name: "Stacked" }));
     expect(within(card).getByTestId("comparison-chart")).toHaveAttribute("data-view", "stacked");
   });

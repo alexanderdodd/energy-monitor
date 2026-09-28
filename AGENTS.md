@@ -320,8 +320,13 @@ plausible-sounding guesses were spent on one of these.
   includes its members' names, so `/Fridge/` matches two cards. Scope queries
   with `within()` on the grid or stat, rather than reaching for the first
   match.
-- A card's heading renders before its data arrives. Wait for the value, not
-  the heading.
+- **A card's heading renders before its data arrives. Await the data, never
+  the heading.** This has caused two flaky tests now, and the second passed
+  five local runs before CI caught it - a race that loses only sometimes is
+  not disproved by a green run. `await screen.findByRole("heading", ...)`
+  proves nothing about the card's contents; `await within(card).findByText(
+  "<a value>")` does. The same applies before clicking a control whose effect
+  is only observable once the data has loaded.
 - The vitest JSON report under `.vitest/` is stale if a run fails to complete;
   delete it before trusting it.
 
