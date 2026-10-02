@@ -281,6 +281,25 @@ before the window are dropped, the period underway is reported separately as
 `inProgressFrom`, and the change figure uses only the last two **complete**
 periods.
 
+## Charts must not be rebuilt by unrelated renders
+
+`setOption(..., { notMerge: true })` replaces the chart wholesale and closes
+any open tooltip. The overview re-renders on every live power reading - about
+once a second - so anything that gives a chart new props at that rate makes
+its tooltips unreadable.
+
+Two defences, keep both:
+
+- The cards take no props and are wrapped in `memo`, and every array handed
+  to a chart is built in a `useMemo`. An inline `series={items.map(...)}` is a
+  fresh identity on every render and is enough on its own to cause this.
+- `ComparisonChart` and `PowerChart` skip a redraw whose inputs serialise
+  identically, so a periodic refetch returning the same figures does not yank
+  a tooltip away mid-read.
+
+Tooltips are `enterable` with a `hideDelay`, so the pointer can move onto
+them - they carry several rows and a total.
+
 ## Chart colour is computed, not chosen
 
 `web/src/lib/palette.ts` holds a categorical palette that was **validated, not

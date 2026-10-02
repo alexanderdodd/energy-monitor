@@ -1,4 +1,4 @@
-import { lazy, useMemo, useState } from "react";
+import { lazy, memo, useMemo, useState } from "react";
 import { ChartBoundary } from "./ChartBoundary.tsx";
 import { formatEnergy, formatMoney } from "../lib/format.ts";
 import { colorFor, MAX_SERIES } from "../lib/palette.ts";
@@ -111,7 +111,7 @@ function foldSeries(result: CompareResult, cap: number): Folded {
  * Every figure here is the same running total the individual pages show, so
  * the comparison can never disagree with the page it links to.
  */
-export function ComparisonCard() {
+function ComparisonCardInner() {
   const [scope, setScope] = useState<CompareScope>("appliances");
   const [range, setRange] = useState<CumulativeRange>("today");
   const [view, setView] = useState<ComparisonView>("lines");
@@ -124,6 +124,11 @@ export function ComparisonCard() {
   const dark =
     typeof window !== "undefined" &&
     (window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
+
+  const buckets = useMemo(
+    () => (Array.isArray(result.data?.buckets) ? result.data.buckets : []),
+    [result.data],
+  );
 
   const folded = useMemo(
     () => (result.data ? foldSeries(result.data, CAP[view]) : null),
@@ -183,7 +188,7 @@ export function ComparisonCard() {
           <ChartBoundary>
             <ComparisonChart
               view={view}
-              buckets={Array.isArray(result.data?.buckets) ? result.data.buckets : []}
+              buckets={buckets}
               series={folded.series}
               range={range}
             />
@@ -219,3 +224,6 @@ export function ComparisonCard() {
     </div>
   );
 }
+
+/** Memoised for the same reason as TrendCard: see the note there. */
+export const ComparisonCard = memo(ComparisonCardInner);

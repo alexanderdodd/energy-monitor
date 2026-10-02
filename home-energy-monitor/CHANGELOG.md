@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.1
+
+- Chart tooltips no longer vanish while being read. The overview re-renders
+  on every live power reading, which was rebuilding the comparison charts
+  about once a second and closing any open tooltip with them.
+- Tooltips can now be hovered directly, so the pointer can move onto them.
+
 ## 0.13.0
 
 - Tooltips in "Usage by period" now show each figure's change from the

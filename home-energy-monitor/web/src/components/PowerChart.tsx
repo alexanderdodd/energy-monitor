@@ -35,6 +35,7 @@ function readTheme() {
 export default function PowerChart({ points, kind, range, unitLabel, label }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
+  const drawn = useRef<string | null>(null);
 
   useEffect(() => {
     if (!container.current) return;
@@ -54,6 +55,12 @@ export default function PowerChart({ points, kind, range, unitLabel, label }: Pr
   useEffect(() => {
     const instance = chart.current;
     if (!instance) return;
+
+    // Skip an identical redraw; it would close an open tooltip for nothing.
+    const signature = JSON.stringify({ points, kind, range, unitLabel });
+    if (drawn.current === signature) return;
+    drawn.current = signature;
+
     const theme = readTheme();
 
     instance.setOption(
@@ -65,6 +72,10 @@ export default function PowerChart({ points, kind, range, unitLabel, label }: Pr
           backgroundColor: theme.tooltipBg,
           borderWidth: 0,
           textStyle: { color: theme.text, fontSize: 12 },
+          enterable: true,
+          hideDelay: 400,
+          confine: true,
+          extraCssText: "box-shadow: 0 8px 24px rgba(0,0,0,0.28); border-radius: 10px;",
           // The x axis holds epoch milliseconds as category values, so the
           // default header would show the raw number. Build the whole
           // tooltip instead of only formatting the value.

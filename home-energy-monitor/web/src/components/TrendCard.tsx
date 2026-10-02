@@ -1,4 +1,4 @@
-import { lazy, useState } from "react";
+import { lazy, memo, useMemo, useState } from "react";
 import { ChartBoundary } from "./ChartBoundary.tsx";
 import { formatEnergy, formatMoney } from "../lib/format.ts";
 import { colorFor } from "../lib/palette.ts";
@@ -40,7 +40,7 @@ const PERIOD_NOUN: Record<TrendPeriod, string> = {
  * up or down". Each bucket is a period's own figure rather than a running
  * total, so successive bars can be read against one another.
  */
-export function TrendCard() {
+function TrendCardInner() {
   const [scope, setScope] = useState<CompareScope>("appliances");
   const [period, setPeriod] = useState<TrendPeriod>("day");
   const [view, setView] = useState<ComparisonView>("grouped");
@@ -54,8 +54,28 @@ export function TrendCard() {
     typeof window !== "undefined" &&
     (window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
 
-  const series = Array.isArray(result.data?.series) ? result.data.series : [];
-  const buckets = Array.isArray(result.data?.buckets) ? result.data.buckets : [];
+  const series = useMemo(
+    () => (Array.isArray(result.data?.series) ? result.data.series : []),
+    [result.data],
+  );
+  const buckets = useMemo(
+    () => (Array.isArray(result.data?.buckets) ? result.data.buckets : []),
+    [result.data],
+  );
+
+  // Built once per data change rather than on every render: a new array
+  // identity would redraw the chart and close any tooltip being read.
+  const chartSeries = useMemo(
+    () =>
+      series.map((item, index) => ({
+        id: item.id,
+        name: item.name,
+        points: item.points,
+        totalKwh: item.points.at(-1) ?? null,
+        colorIndex: index,
+      })),
+    [series],
+  );
   const currency = result.data?.currency ?? "EUR";
   const price = result.data?.electricityPricePerKwh ?? 0;
   const total = result.data?.total;
@@ -114,13 +134,7 @@ export function TrendCard() {
             <ComparisonChart
               view={view}
               buckets={buckets}
-              series={series.map((item, index) => ({
-                id: item.id,
-                name: item.name,
-                points: item.points,
-                totalKwh: item.points.at(-1) ?? null,
-                colorIndex: index,
-              }))}
+              series={chartSeries}
               range={period}
               showChange
             />
@@ -201,3 +215,10 @@ export function TrendCard() {
     </div>
   );
 }
+
+/**
+ * Takes no props, so there is nothing for a parent re-render to change.
+ * Without this the card re-rendered on every live power update - about once
+ * a second - which is what made tooltips vanish mid-read.
+ */
+export const TrendCard = memo(TrendCardInner);

@@ -10,10 +10,14 @@ vi.mock("../web/src/components/PowerChart.tsx", () => ({
   default: ({ label }: { label: string }) => <div data-testid="chart" aria-label={label} />,
 }));
 
+/** Counts how often the chart is actually re-rendered, not just the card. */
+const chartRenders = vi.hoisted(() => ({ comparison: 0 }));
+
 vi.mock("../web/src/components/ComparisonChart.tsx", () => ({
-  default: ({ view, series }: { view: string; series: { name: string }[] }) => (
-    <div data-testid="comparison-chart" data-view={view} data-series={series.length} />
-  ),
+  default: ({ view, series }: { view: string; series: { name: string }[] }) => {
+    chartRenders.comparison += 1;
+    return <div data-testid="comparison-chart" data-view={view} data-series={series.length} />;
+  },
 }));
 import { StubEventSource } from "./setup.ts";
 
@@ -222,6 +226,7 @@ function respond(body: unknown) {
 
 beforeEach(() => {
   requests.length = 0;
+  chartRenders.comparison = 0;
   window.location.hash = "";
 
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
@@ -595,6 +600,34 @@ describe("Usage by period", () => {
 
     await user.click(within(card).getByRole("button", { name: "Stacked" }));
     expect(within(card).getByTestId("comparison-chart")).toHaveAttribute("data-view", "stacked");
+  });
+
+  it("is not redrawn by live power updates", async () => {
+    // The bug this guards: the overview re-renders on every live reading,
+    // about once a second, and a chart redrawn that often closes any tooltip
+    // the moment someone tries to read it.
+    render(<App />);
+    await screen.findByRole("heading", { name: "Usage by period" });
+    await within(trendCard()).findByTestId("comparison-chart");
+
+    const before = chartRenders.comparison;
+
+    StubEventSource.instances[0]!.emit("state", {
+      generatedAt: "2026-09-28T12:00:05.000Z",
+      connection: { connected: true, lastUpdate: "2026-09-28T12:00:05.000Z", lastError: null },
+      totalPowerW: 1893,
+      appliances: [
+        { id: "device:fridge", name: "Fridge", available: true, powerW: 43, currentA: null, voltageV: null },
+        { id: "device:dryer", name: "Dryer", available: true, powerW: 1850, currentA: null, voltageV: null },
+      ],
+    });
+
+    // The live figure must reach the cards above...
+    await waitFor(() =>
+      expect(within(stat("Live consumption")).getByText("1.89 kW")).toBeInTheDocument(),
+    );
+    // ...without the comparison charts being rebuilt.
+    expect(chartRenders.comparison).toBe(before);
   });
 
   it("refetches when the period changes", async () => {

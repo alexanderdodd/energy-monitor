@@ -82,6 +82,8 @@ function readTheme() {
 export default function ComparisonChart({ view, buckets, series, range, showChange }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
+  /** What was last drawn, so an identical redraw can be skipped. */
+  const drawn = useRef<string | null>(null);
 
   useEffect(() => {
     if (!container.current) return;
@@ -101,6 +103,14 @@ export default function ComparisonChart({ view, buckets, series, range, showChan
   useEffect(() => {
     const instance = chart.current;
     if (!instance) return;
+
+    // Redrawing replaces the chart wholesale and takes any open tooltip with
+    // it. A periodic refetch that returns the same figures must not yank a
+    // tooltip out from under someone mid-read.
+    const signature = JSON.stringify({ view, buckets, series, range, showChange });
+    if (drawn.current === signature) return;
+    drawn.current = signature;
+
     const theme = readTheme();
 
     const colored = series.map((item) => ({ ...item, color: colorFor(item.colorIndex, theme.dark) }));
@@ -112,6 +122,13 @@ export default function ComparisonChart({ view, buckets, series, range, showChan
       backgroundColor: theme.surface,
       borderWidth: 0,
       textStyle: { color: theme.text, fontSize: 12 },
+      // Let the pointer move onto the tooltip without dismissing it - these
+      // carry several rows and a total, which takes a moment to read.
+      enterable: true,
+      hideDelay: 400,
+      // Keep it inside the chart rather than clipped at the card's edge.
+      confine: true,
+      extraCssText: "box-shadow: 0 8px 24px rgba(0,0,0,0.28); border-radius: 10px;",
     };
 
     /** "▲ 12% (+0.18 kWh)" against the previous bucket, or nothing to say. */
