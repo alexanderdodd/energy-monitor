@@ -15,9 +15,12 @@ saved you an hour, add it.
 - Write commit messages that explain *why*. The what is in the diff; the
   reasoning is not, and this project has already had two fixes whose cause
   was impossible to infer from the change alone.
-- **Pushing is a separate decision.** A push to `main` runs CI that publishes
-  a container image to GHCR, so push when asked, when releasing, or when the
-  change is only useful once it is remote.
+- **Release and push every user-facing change, without asking.** The owner
+  wants each change live in Home Assistant, not waiting on a prompt. Once a
+  change is committed and tests pass, follow *Releasing* below - changelog
+  entry, version bump, commit, push to `main`. A push without a version bump
+  publishes nothing, so a push alone is not a release. Docs-only and
+  test-only changes still get pushed, just with no bump.
 - If a change taught you something non-obvious, update this file in the same
   commit.
 
@@ -371,6 +374,9 @@ plausible-sounding guesses were spent on one of these.
 ## Releasing
 
 `config.yaml` → `version` is the image tag Home Assistant pulls.
+
+This is done for every user-facing change, unprompted (see *Working
+agreement*). Features bump the minor version, fixes the patch.
 
 1. Change code, add a `CHANGELOG.md` entry.
 2. Bump `version` in **both** `config.yaml` and `package.json` (the latter is
