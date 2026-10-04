@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0
+
+- New **Daily average** figure on the overview, every appliance page and
+  every category page: mean kWh per complete day over the last 30 days. Today
+  is left out, since a day still in progress would drag the average down, and
+  the figure says how many days it covers.
+
 ## 0.13.1
 
 - Chart tooltips no longer vanish while being read. The overview re-renders
