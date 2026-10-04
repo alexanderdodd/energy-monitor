@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0
+
+- The overview now puts what is on right now first: categories and then
+  appliances, each with live power, sit straight under the headline totals.
+  The charts follow under a "Usage over time" heading.
+
 ## 0.14.0
 
 - New **Daily average** figure on the overview, every appliance page and
