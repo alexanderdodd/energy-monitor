@@ -112,6 +112,9 @@ export interface CategoryReading {
   costWeek: number | null;
   energyMonthKwh: number | null;
   costMonth: number | null;
+  /** Mean kWh per complete day in the recent window, or null with none yet. */
+  dailyAverageKwh: number | null;
+  dailyAverageDays: number;
   /** Daily totals over the rolling window, for the sparkline and charts. */
   dailyKwh: { t: number; v: number | null }[];
   trend: Trend | null;

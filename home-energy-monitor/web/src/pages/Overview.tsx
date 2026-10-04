@@ -5,7 +5,7 @@ import { TrendCard } from "../components/TrendCard.tsx";
 import { ConnectionBanner } from "../components/ConnectionBanner.tsx";
 import { CumulativeCard } from "../components/CumulativeCard.tsx";
 import { Stat } from "../components/Stat.tsx";
-import { formatEnergy, formatMoney, formatPower } from "../lib/format.ts";
+import { formatAverageBasis, formatEnergy, formatMoney, formatPower } from "../lib/format.ts";
 import { navigate } from "../lib/router.ts";
 import { useApiResource } from "../lib/useApi.ts";
 import type { LiveSnapshot, Summary } from "../lib/types.ts";
@@ -89,6 +89,11 @@ export function Overview({ live, streaming }: Props) {
           label="This month"
           value={formatEnergy(totals.energyMonthKwh)}
           hint={formatMoney(totals.costMonth, currency)}
+        />
+        <Stat
+          label="Daily average"
+          value={formatEnergy(totals.dailyAverageKwh)}
+          hint={formatAverageBasis(totals.dailyAverageDays)}
         />
       </div>
 

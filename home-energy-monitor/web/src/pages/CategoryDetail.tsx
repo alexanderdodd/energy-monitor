@@ -4,7 +4,7 @@ import { ConnectionBanner } from "../components/ConnectionBanner.tsx";
 import { CumulativeCard } from "../components/CumulativeCard.tsx";
 import { Stat } from "../components/Stat.tsx";
 import { TrendBadge } from "../components/TrendBadge.tsx";
-import { formatEnergy, formatMoney, formatPower } from "../lib/format.ts";
+import { formatAverageBasis, formatEnergy, formatMoney, formatPower } from "../lib/format.ts";
 import { hrefFor, navigate } from "../lib/router.ts";
 import { useApiResource } from "../lib/useApi.ts";
 import type { CategoryDetail as Detail, LiveSnapshot } from "../lib/types.ts";
@@ -67,6 +67,11 @@ export function CategoryDetailPage({ id, live, streaming, onTitle }: Props) {
         <Stat label="7 day cost" value={formatMoney(data.costWeek, currency)} />
         <Stat label="This month" value={formatEnergy(data.energyMonthKwh)} />
         <Stat label="Month cost" value={formatMoney(data.costMonth, currency)} />
+        <Stat
+          label="Daily average"
+          value={formatEnergy(data.dailyAverageKwh)}
+          hint={formatAverageBasis(data.dailyAverageDays)}
+        />
       </div>
 
       {data.trend?.comparable ? (

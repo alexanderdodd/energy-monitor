@@ -37,6 +37,12 @@ export function formatMoney(
   }
 }
 
+/** What a daily average is based on, so one day of data is not read as a trend. */
+export function formatAverageBasis(days: number): string {
+  if (days === 0) return "No complete day yet";
+  return days === 1 ? "From 1 complete day" : `Over the last ${days} days`;
+}
+
 /** "2 minutes ago", for the Home Assistant connection status. */
 export function formatRelativeTime(iso: string | null | undefined, now = Date.now()): string {
   if (!iso) return "never";

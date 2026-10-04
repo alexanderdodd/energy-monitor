@@ -4,6 +4,7 @@ import { ConnectionBanner } from "../components/ConnectionBanner.tsx";
 import { CumulativeCard } from "../components/CumulativeCard.tsx";
 import { Stat } from "../components/Stat.tsx";
 import {
+  formatAverageBasis,
   formatCurrent,
   formatRelativeTime,
   formatEnergy,
@@ -84,6 +85,11 @@ export function ApplianceDetailPage({ id, live, streaming }: Props) {
         <Stat label="Week cost" value={formatMoney(appliance.costWeek, currency)} />
         <Stat label="This month" value={formatEnergy(appliance.energyMonthKwh)} />
         <Stat label="Month cost" value={formatMoney(appliance.costMonth, currency)} />
+        <Stat
+          label="Daily average"
+          value={formatEnergy(appliance.forecast?.dailyAverageKwh)}
+          hint={formatAverageBasis(appliance.forecast?.basedOnDays ?? 0)}
+        />
       </div>
 
       {appliance.forecast ? (

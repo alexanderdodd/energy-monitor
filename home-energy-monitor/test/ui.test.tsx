@@ -35,6 +35,8 @@ const SUMMARY = {
     costWeek: 8.52,
     energyMonthKwh: 120,
     costMonth: 36,
+    dailyAverageKwh: 3.87,
+    dailyAverageDays: 12,
     estimatedMonthlyKwh: 124,
     estimatedYearlyKwh: 1500,
     estimatedYearlyCost: 450,
@@ -56,6 +58,8 @@ const SUMMARY = {
       costWeek: 4.26,
       energyMonthKwh: 60,
       costMonth: 18,
+      dailyAverageKwh: 2.2,
+      dailyAverageDays: 3,
       dailyKwh: [
         { t: 1, v: 2 },
         { t: 2, v: 2.4 },
@@ -264,6 +268,8 @@ describe("Overview", () => {
     expect(within(stat("This week")).getByText("€8.52")).toBeInTheDocument();
     expect(within(stat("This month")).getByText("120 kWh")).toBeInTheDocument();
     expect(within(stat("This month")).getByText("€36.00")).toBeInTheDocument();
+    expect(within(stat("Daily average")).getByText("3.87 kWh")).toBeInTheDocument();
+    expect(within(stat("Daily average")).getByText("Over the last 12 days")).toBeInTheDocument();
 
     const fridge = applianceCard(/Fridge/);
     expect(within(fridge).getByText("43 W")).toBeInTheDocument();
@@ -372,6 +378,7 @@ describe("Categories", () => {
     expect(screen.getByText("Category")).toBeInTheDocument();
     expect(screen.getByText("14.20 kWh")).toBeInTheDocument();
     expect(screen.getByText("€4.26")).toBeInTheDocument();
+    expect(within(stat("Daily average")).getByText("2.20 kWh")).toBeInTheDocument();
     // Members link through to their own appliance pages.
     expect(screen.getByRole("link", { name: "Dryer" })).toBeInTheDocument();
   });

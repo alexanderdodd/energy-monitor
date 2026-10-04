@@ -90,6 +90,10 @@ export interface SummaryTotals {
   costWeek: number | null;
   energyMonthKwh: number | null;
   costMonth: number | null;
+  /** Mean kWh per complete day in the recent window; the forecast's own figure. */
+  dailyAverageKwh: number | null;
+  /** How many complete days the average covers. */
+  dailyAverageDays: number;
   estimatedMonthlyKwh: number | null;
   estimatedYearlyKwh: number | null;
   estimatedYearlyCost: number | null;
@@ -487,6 +491,13 @@ export class ApplianceService {
     const energyMonthKwh = sumValues(
       members.map((appliance) => periodsByAppliance.get(appliance.id)?.month ?? null),
     );
+    // Same arithmetic as the household and appliance forecasts: whole days
+    // only, since today is still in progress.
+    const todayStart = startOfLocalDay(now).getTime();
+    const average = forecastFromDailyTotals(
+      daily.filter((point) => point.v !== null && point.t < todayStart).map((point) => point.v!),
+      now,
+    );
 
     return {
       id: category.id,
@@ -501,6 +512,8 @@ export class ApplianceService {
       costWeek: costOf(energyWeekKwh, price),
       energyMonthKwh,
       costMonth: costOf(energyMonthKwh, price),
+      dailyAverageKwh: average?.dailyAverageKwh ?? null,
+      dailyAverageDays: average?.basedOnDays ?? 0,
       dailyKwh: daily,
       trend: trendOverWindows(daily, now),
     };
@@ -567,6 +580,8 @@ export class ApplianceService {
       costWeek: costOf(energyWeek, price),
       energyMonthKwh: energyMonth,
       costMonth: costOf(energyMonth, price),
+      dailyAverageKwh: forecast?.dailyAverageKwh ?? null,
+      dailyAverageDays: forecast?.basedOnDays ?? 0,
       estimatedMonthlyKwh: forecast?.estimatedMonthlyKwh ?? null,
       estimatedYearlyKwh: forecast?.estimatedYearlyKwh ?? null,
       estimatedYearlyCost: costOf(forecast?.estimatedYearlyKwh ?? null, price),

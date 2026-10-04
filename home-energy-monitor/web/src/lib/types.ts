@@ -93,6 +93,8 @@ export interface CategoryReading {
   costWeek: number | null;
   energyMonthKwh: number | null;
   costMonth: number | null;
+  dailyAverageKwh: number | null;
+  dailyAverageDays: number;
   dailyKwh: ChartPoint[];
   trend: Trend | null;
 }
@@ -111,6 +113,8 @@ export interface SummaryTotals {
   costWeek: number | null;
   energyMonthKwh: number | null;
   costMonth: number | null;
+  dailyAverageKwh: number | null;
+  dailyAverageDays: number;
   estimatedMonthlyKwh: number | null;
   estimatedYearlyKwh: number | null;
   estimatedYearlyCost: number | null;

@@ -456,6 +456,29 @@ describe("categories", () => {
     expect(body.categories[1]!.energyTodayKwh).toBe(0.62);
   });
 
+  it("reports one daily average on the dashboard, appliance and category", async () => {
+    await configureCategories(current);
+    const summary = (await current.app.inject({ url: "/api/summary" })).json() as {
+      totals: { dailyAverageKwh: number | null; dailyAverageDays: number };
+      categories: { dailyAverageKwh: number | null }[];
+    };
+    const appliance = (
+      await current.app.inject({ url: "/api/appliances/device:dev-fridge" })
+    ).json() as { forecast: { dailyAverageKwh: number; basedOnDays: number } };
+    const category = (await current.app.inject({ url: "/api/categories/cooling" })).json() as {
+      dailyAverageKwh: number | null;
+      dailyAverageDays: number;
+    };
+
+    // Complete days only: today's partial 0.62 would drag the mean down.
+    expect(summary.totals.dailyAverageKwh).toBe(PER_DAY);
+    expect(appliance.forecast.dailyAverageKwh).toBe(PER_DAY);
+    expect(category.dailyAverageKwh).toBe(PER_DAY);
+    expect(summary.categories[0]!.dailyAverageKwh).toBe(PER_DAY);
+    expect(category.dailyAverageDays).toBe(appliance.forecast.basedOnDays);
+    expect(summary.totals.dailyAverageDays).toBe(appliance.forecast.basedOnDays);
+  });
+
   it("ignores membership for appliances that no longer exist", async () => {
     await configureFridge(current);
     await current.app.inject({
