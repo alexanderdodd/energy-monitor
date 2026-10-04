@@ -97,17 +97,6 @@ export function Overview({ live, streaming }: Props) {
         />
       </div>
 
-      <CumulativeCard
-        basePath="api/summary/cumulative"
-        subject="the whole house"
-        currency={currency}
-        pricePerKwh={summary.data.electricityPricePerKwh}
-      />
-
-      <ComparisonCard />
-
-      <TrendCard />
-
       {summary.data.categories.length > 0 ? (
         <>
           <h2 className="section-title">Categories</h2>
@@ -141,6 +130,20 @@ export function Overview({ live, streaming }: Props) {
           />
         ))}
       </div>
+
+      {/* Live state first, for an at-a-glance "what is on"; the charts that
+          need reading sit below it. */}
+      <h2 className="section-title">Usage over time</h2>
+      <CumulativeCard
+        basePath="api/summary/cumulative"
+        subject="the whole house"
+        currency={currency}
+        pricePerKwh={summary.data.electricityPricePerKwh}
+      />
+
+      <ComparisonCard />
+
+      <TrendCard />
 
       {totals.estimatedMonthlyKwh !== null ? (
         <p className="meta" style={{ marginTop: 18 }}>
