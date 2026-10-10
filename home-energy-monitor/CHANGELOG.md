@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.1
+
+- Fixed the 7- and 30-day compare chart repeating today's date along most of
+  its axis. Appliances whose data comes at different resolutions (daily
+  statistics for one plug, five-minute meter readings for another) are now
+  spaced by time, so each day takes a day's width, and the tooltip shows the
+  time of day where it matters.
+
 ## 0.15.0
 
 - The overview now puts what is on right now first: categories and then
