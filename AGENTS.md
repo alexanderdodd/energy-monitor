@@ -303,6 +303,22 @@ Two defences, keep both:
 Tooltips are `enterable` with a `hideDelay`, so the pointer can move onto
 them - they carry several rows and a total.
 
+## Series on one axis can arrive at different resolutions
+
+Each appliance's curve takes the finest source *it* has, so one compare chart
+can hold daily statistics for one plug and five-minute vendor-meter readings
+for another. `alignCumulative` unions the timestamps; on a `category` axis
+every merged bucket then gets equal width, so a 7-day view spent nearly all of
+its width on today and labelled it "10 Oct" twenty times over. Any chart
+showing several series over a multi-day range uses a `time` axis. Category
+axes are fine only where every bucket is the same width - single-series
+charts and the period views.
+
+The redraw-skip in the charts must be reset when the instance is disposed.
+React's development double-mount re-creates the chart with unchanged inputs,
+and an inherited "already drawn" mark left it blank - only in `npm run
+dev:web`, which is exactly where it gets checked.
+
 ## Chart colour is computed, not chosen
 
 `web/src/lib/palette.ts` holds a categorical palette that was **validated, not

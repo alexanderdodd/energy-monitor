@@ -3,6 +3,7 @@ import {
   NO_VALUE,
   formatCurrent,
   formatEnergy,
+  formatInstant,
   formatMoney,
   formatPower,
   formatRelativeTime,
@@ -75,6 +76,15 @@ describe("chart labels", () => {
     expect(formatTooltipTime(timestamp, "24h", "en-GB")).toMatch(/\d{2}:\d{2}/);
     // 30d buckets are whole days; a time of day would be meaningless.
     expect(formatTooltipTime(timestamp, "30d", "en-GB")).not.toMatch(/\d{2}:\d{2}/);
+  });
+
+  it("dates a day bucket but times anything finer on a mixed axis", () => {
+    const midnight = new Date(2026, 9, 4).getTime();
+    const afternoon = new Date(2026, 9, 10, 14, 5).getTime();
+    expect(formatInstant(midnight, "en-GB")).not.toMatch(/\d{2}:\d{2}/);
+    expect(formatInstant(midnight, "en-GB")).toContain("4 Oct");
+    // Without the time, every five-minute point of a day reads identically.
+    expect(formatInstant(afternoon, "en-GB")).toContain("14:05");
   });
 
   it("degrades safely on a bad timestamp", () => {

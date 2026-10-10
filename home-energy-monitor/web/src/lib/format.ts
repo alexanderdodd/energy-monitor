@@ -94,3 +94,19 @@ export function formatTooltipTime(timestamp: number, range: string, locale?: str
     minute: "2-digit",
   });
 }
+
+/**
+ * Tooltip label for a point on an axis that mixes resolutions.
+ *
+ * A multi-day comparison can hold one appliance's daily totals beside
+ * another's five-minute readings. A day bucket starts at local midnight and
+ * stands for the whole day, so it gets the date alone; anything finer gets
+ * the time as well, or a day's worth of points all read as the same date.
+ */
+export function formatInstant(timestamp: number, locale?: string): string {
+  if (!Number.isFinite(timestamp)) return "";
+  const date = new Date(timestamp);
+  const midnight =
+    date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0;
+  return formatTooltipTime(timestamp, midnight ? "30d" : "7d", locale);
+}

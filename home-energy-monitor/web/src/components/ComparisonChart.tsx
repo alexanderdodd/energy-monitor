@@ -3,7 +3,7 @@ import * as echarts from "echarts/core";
 import { BarChart, LineChart, PieChart } from "echarts/charts";
 import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
-import { formatEnergy, formatTimeAxis, formatTooltipTime } from "../lib/format.ts";
+import { formatEnergy, formatInstant, formatTimeAxis, formatTooltipTime } from "../lib/format.ts";
 import { colorFor } from "../lib/palette.ts";
 
 echarts.use([
@@ -65,6 +65,8 @@ function bucketLabel(timestamp: number, range: string): string {
   return formatTooltipTime(timestamp, range);
 }
 
+const DAY_MS = 86_400_000;
+
 function readTheme() {
   const dark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
   return {
@@ -97,6 +99,11 @@ export default function ComparisonChart({ view, buckets, series, range, showChan
       observer.disconnect();
       instance.dispose();
       chart.current = null;
+      // A new instance starts blank, so it must not inherit the old one's
+      // "already drawn" mark. React's development double-mount disposes and
+      // re-creates the chart with unchanged inputs, which otherwise left it
+      // empty.
+      drawn.current = null;
     };
   }, []);
 
@@ -212,36 +219,49 @@ export default function ComparisonChart({ view, buckets, series, range, showChan
             axisPointer: { type: "line", lineStyle: { color: theme.axis, width: 1 } },
             formatter: (params: unknown) => {
               const points = (Array.isArray(params) ? params : [params]) as {
-                axisValue?: string | number;
                 marker?: string;
                 seriesName?: string;
-                value?: number | null;
+                value?: [number, number | null];
               }[];
-              const heading = bucketLabel(Number(points[0]?.axisValue), range);
+              const at = points[0]?.value?.[0] ?? Number.NaN;
+              const heading =
+                range === "today" ? formatTooltipTime(at, "24h") : formatInstant(at);
               const rows = points
-                .filter((point) => point.value !== null && point.value !== undefined)
-                .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+                .map((point) => ({ ...point, kwh: point.value?.[1] ?? null }))
+                .filter((point) => point.kwh !== null)
+                .sort((a, b) => (b.kwh ?? 0) - (a.kwh ?? 0))
                 .map(
                   (point) =>
                     `${point.marker ?? ""} ${point.seriesName ?? ""} &nbsp; <b>${formatEnergy(
-                      point.value ?? null,
+                      point.kwh,
                     )}</b>`,
                 )
                 .join("<br>");
               return `${heading}<br>${rows}`;
             },
           },
+          // A time axis, not a category one. Series here can each come at a
+          // different resolution - daily statistics for one appliance, a
+          // five-minute vendor meter for another - and a category axis
+          // spaces every merged bucket evenly, so today's few hundred
+          // five-minute points took nearly the whole width and labelled it
+          // with the same date over and over.
           xAxis: {
-            type: "category",
-            data: buckets,
+            type: "time",
+            min: buckets[0],
+            max: buckets.at(-1),
+            // Whole-day ticks on multi-day ranges; a tick every few hours
+            // would only repeat the date.
+            ...(range === "today" ? {} : { minInterval: DAY_MS }),
             axisLabel: {
               color: theme.axis,
               fontSize: 11,
               hideOverlap: true,
-              formatter: (value: string) => axisLabel(Number(value), range),
+              formatter: (value: number) => axisLabel(value, range),
             },
             axisLine: { lineStyle: { color: theme.split } },
             axisTick: { show: false },
+            splitLine: { show: false },
           },
           yAxis: {
             type: "value",
@@ -253,7 +273,7 @@ export default function ComparisonChart({ view, buckets, series, range, showChan
           series: colored.map((item) => ({
             type: "line",
             name: item.name,
-            data: item.points,
+            data: item.points.map((value, index) => [buckets[index], value]),
             showSymbol: buckets.length <= 40,
             symbolSize: 8,
             connectNulls: false,
