@@ -49,6 +49,11 @@ export default function PowerChart({ points, kind, range, unitLabel, label }: Pr
       observer.disconnect();
       instance.dispose();
       chart.current = null;
+      // A new instance starts blank, so it must not inherit the old one's
+      // "already drawn" mark. React's development double-mount disposes and
+      // re-creates the chart with unchanged inputs, which otherwise left it
+      // empty.
+      drawn.current = null;
     };
   }, []);
 
