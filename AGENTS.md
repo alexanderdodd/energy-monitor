@@ -267,6 +267,24 @@ That shape drives two rules:
 The mock reproduces this shape: profiles expose a monthly counter, and the
 washing machine reports mixed units.
 
+## Appliance integrations rarely report energy
+
+Smart-appliance integrations look like they should feed the dashboard and
+usually cannot. Checked for Home Connect Local (`homeconnect_ws`, Bosch /
+Siemens / Neff over the local network, as of October 2026): it defines **no**
+power or energy sensor for any appliance type. The nearest things are
+`Energy Forecast` and `Water Forecast`, both a **percentage** relative to the
+appliance's most demanding programme, marked diagnostic, and with no
+`device_class`. There is no honest way to turn either into kWh, so discovery
+correctly ignores them (`%` is not in `UNIT_KINDS`).
+
+The answer for such an appliance is a metering plug in front of it, or an
+estimate built in Home Assistant (Powercalc) linked to the appliance's
+device, which discovery then picks up with no code change. Do not synthesise
+consumption from programme state or forecast percentages inside this app:
+an estimate would sit beside measured figures and be summed into the totals
+as if it were one.
+
 ## Two comparisons, two questions
 
 - **Compare** (`/api/compare`) shows *running totals within one range* - who
