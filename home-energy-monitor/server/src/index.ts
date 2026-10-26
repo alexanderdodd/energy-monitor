@@ -81,9 +81,44 @@ async function main(): Promise<void> {
     );
   };
 
+  watchMemory();
+
+  // A kill from outside (the kernel's out-of-memory killer sends SIGKILL)
+  // runs no handler at all, so a restart with no line before it was killed.
+  // Any exit the process makes itself says so here.
+  process.on("exit", (code) => log.info(`Exiting with code ${code}`));
+
   // The container runs node as PID 1, which gets no default signal handlers.
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+}
+
+const MB = 1024 * 1024;
+
+/**
+ * Warn each time resident memory reaches a new 50 MB step above 150 MB.
+ *
+ * The V8 heap is capped, but response bodies and other buffers live outside
+ * it, so the process can grow past the cap without V8 ever complaining - and
+ * if the kernel then kills it, nothing is logged. A rising line here before a
+ * silent restart is the evidence that it was memory.
+ */
+function watchMemory(): void {
+  let reported = 150;
+  const check = () => {
+    const usage = process.memoryUsage();
+    const rss = usage.rss / MB;
+    if (rss < reported + 50) return;
+    reported = Math.floor(rss / 50) * 50;
+    log.warning(
+      `Memory high: rss ${rss.toFixed(0)} MB, heap ${(usage.heapUsed / MB).toFixed(0)} MB, ` +
+        `buffers ${(usage.arrayBuffers / MB).toFixed(0)} MB, external ${(usage.external / MB).toFixed(0)} MB`,
+    );
+  };
+  // Unref'd so the timer never holds the process open by itself.
+  setInterval(check, 5_000).unref();
+  const usage = process.memoryUsage();
+  log.info(`Memory at start: rss ${(usage.rss / MB).toFixed(0)} MB`);
 }
 
 main().catch((error: Error) => {

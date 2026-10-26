@@ -36,7 +36,10 @@ function redact(value: unknown): unknown {
 function emit(level: LogLevel, args: unknown[]): void {
   if (LEVELS.indexOf(level) < threshold) return;
   const stream = LEVELS.indexOf(level) >= LEVELS.indexOf("warning") ? console.error : console.log;
-  stream(`[${level.toUpperCase()}]`, ...args.map(redact));
+  // Timestamped because the Supervisor's log download carries none of its
+  // own, which left a run of unexplained restarts impossible to line up with
+  // anything else Home Assistant logged.
+  stream(new Date().toISOString(), `[${level.toUpperCase()}]`, ...args.map(redact));
 }
 
 export const log = {

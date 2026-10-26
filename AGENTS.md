@@ -389,6 +389,21 @@ shows the raw state, unit, converted value and last-changed for every mapped
 sensor. Start there, and ask for it before theorising; two rounds of
 plausible-sounding guesses were spent on one of these.
 
+## Unexplained restarts
+
+A log from October 2026 showed 108 starts against 19 clean shutdowns: the
+app had been dying dozens of times since 0.13 with **nothing** logged. Node
+prints its own crash output for an uncaught error or a V8 heap overflow, and
+stderr does reach the Supervisor log, so silence points at a kill from
+outside - typically the kernel's out-of-memory killer, which sends SIGKILL.
+`--max-old-space-size` caps only the V8 heap; response bodies and buffers
+sit outside it.
+
+Log lines are now timestamped, the process logs "Exiting with code N" for
+any exit it makes itself, and RSS is logged on each new 50 MB step above
+150 MB. A restart with no exit line before it, after a rising memory
+warning, is a memory kill. Check the Host log for `oom` to confirm.
+
 ## Testing quirks
 
 - **ECharts needs a real canvas and throws in jsdom**, so component tests mock
