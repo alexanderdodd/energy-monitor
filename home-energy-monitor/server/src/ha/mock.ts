@@ -224,8 +224,18 @@ export class MockHaSource implements HaSource {
       const first = new Date(start);
       first.setHours(period === "day" ? 0 : first.getHours(), period === "day" ? 0 : 0, 0, 0);
 
-      for (let bucket = first.getTime(); bucket < end.getTime(); bucket += bucketMs) {
-        const bucketEnd = Math.min(bucket + bucketMs, end.getTime());
+      // Day buckets step by the calendar, as Home Assistant's do. A fixed 24
+      // hours drifts off midnight at a daylight-saving change, after which
+      // today's part-day landed on yesterday and read as a sudden drop.
+      const next = (bucket: number): number => {
+        if (period !== "day") return bucket + bucketMs;
+        const date = new Date(bucket);
+        date.setDate(date.getDate() + 1);
+        return date.getTime();
+      };
+
+      for (let bucket = first.getTime(); bucket < end.getTime(); bucket = next(bucket)) {
+        const bucketEnd = Math.min(next(bucket), end.getTime());
         // Integrate on a fixed one-minute grid rather than a fixed number of
         // samples per bucket. Bucket starts are minute-aligned, so a day's
         // bucket and that day's five-minute buckets land on the same sample
