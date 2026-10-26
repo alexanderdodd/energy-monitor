@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.1
+
+- The app's log now timestamps every line, notes when the app exits and why,
+  and warns when its memory use climbs. The app has been restarting without
+  logging a reason; this is to find out what is stopping it.
+
 ## 0.16.0
 
 - New "Rolling average" chart at the top of "Usage over time" on the
