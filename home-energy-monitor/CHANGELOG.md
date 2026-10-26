@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.16.0
+
+- New "Rolling average" chart at the top of "Usage over time" on the
+  overview: the whole house's use per day, with a seven-day average drawn
+  over it so the direction shows through the day-to-day noise. Switch
+  between 30 days, 90 days and a year. The legend gives the latest average
+  and how it compares with the week before.
+- The average is only drawn where every day in its week was recorded, and
+  today is left out until it is over. Where a plug was added part-way
+  through, the card says so, since the total steps up there because more is
+  being measured, not necessarily used.
+
 ## 0.15.1
 
 - Fixed the 7- and 30-day compare chart repeating today's date along most of
