@@ -302,6 +302,29 @@ before the window are dropped, the period underway is reported separately as
 `inProgressFrom`, and the change figure uses only the last two **complete**
 periods.
 
+## The rolling average
+
+The overview's "Rolling average" card (`/api/summary/rolling`) answers "is
+the house using less". Rules it holds to:
+
+- **A seven-day window, and only where all seven days were recorded.**
+  Averaging over whichever days happen to exist shrinks the window
+  silently, and a week is a week precisely so weekends weigh the same in
+  every point. A missing day blanks the line there; it is never a zero.
+- **Today is excluded**, for the same reason as in trends.
+- **It reaches back up to a year**, past the summary's 30-day window, so it
+  fetches its own daily series and caches it for ten minutes - past days do
+  not change. Statistics are kept indefinitely; plugs that only have a daily
+  counter are still bounded by recorder retention.
+- **Adding a plug steps the total up.** That is more being metered, not more
+  used, and it looks exactly like rising consumption. The response lists
+  `additions` (appliances whose record begins after the household's) and the
+  UI names them. Keep that note whenever the total can include late starters.
+
+Day arithmetic goes through `setDate`, never `+ 86_400_000`: a test written
+the lazy way failed on the day after a daylight-saving change, and the mock
+had the same bug in its statistics (fixed).
+
 ## Charts must not be rebuilt by unrelated renders
 
 `setOption(..., { notMerge: true })` replaces the chart wholesale and closes

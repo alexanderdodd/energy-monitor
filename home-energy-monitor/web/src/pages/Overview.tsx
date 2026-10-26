@@ -4,6 +4,7 @@ import { ComparisonCard } from "../components/ComparisonCard.tsx";
 import { TrendCard } from "../components/TrendCard.tsx";
 import { ConnectionBanner } from "../components/ConnectionBanner.tsx";
 import { CumulativeCard } from "../components/CumulativeCard.tsx";
+import { RollingCard } from "../components/RollingCard.tsx";
 import { Stat } from "../components/Stat.tsx";
 import { formatAverageBasis, formatEnergy, formatMoney, formatPower } from "../lib/format.ts";
 import { navigate } from "../lib/router.ts";
@@ -134,6 +135,9 @@ export function Overview({ live, streaming }: Props) {
       {/* Live state first, for an at-a-glance "what is on"; the charts that
           need reading sit below it. */}
       <h2 className="section-title">Usage over time</h2>
+      {/* The direction first: is the house using less than it was. */}
+      <RollingCard />
+
       <CumulativeCard
         basePath="api/summary/cumulative"
         subject="the whole house"

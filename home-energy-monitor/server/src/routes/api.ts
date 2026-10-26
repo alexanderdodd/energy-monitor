@@ -6,6 +6,7 @@ import type { HaSource } from "../ha/types.ts";
 import {
   isCompareScope,
   isCumulativeRange,
+  isRollingRange,
   isTrendPeriod,
   type ApplianceService,
   type CumulativeRange,
@@ -234,6 +235,19 @@ export function registerApiRoutes(app: FastifyInstance, deps: ApiDependencies): 
       }
     },
   );
+
+  app.get<{ Querystring: { range?: string } }>("/api/summary/rolling", async (request, reply) => {
+    const range = request.query.range ?? "90d";
+    if (!isRollingRange(range)) {
+      return reply.code(400).send({ error: "range must be one of 30d, 90d, 1y" });
+    }
+    try {
+      return await service.rolling(range);
+    } catch (error) {
+      log.warning(`Could not build the rolling average: ${(error as Error).message}`);
+      return reply.code(503).send({ error: "Could not reach Home Assistant" });
+    }
+  });
 
   app.get("/api/summary", async (_request, reply) => {
     try {

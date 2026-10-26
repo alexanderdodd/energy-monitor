@@ -238,6 +238,28 @@ export interface TrendResult {
   electricityPricePerKwh: number;
 }
 
+export type RollingRange = "30d" | "90d" | "1y";
+
+export interface RollingPoint {
+  t: number;
+  /** That day's own consumption; null where nothing was recorded. */
+  dayKwh: number | null;
+  /** Trailing average; null unless every day in its window was recorded. */
+  averageKwh: number | null;
+}
+
+export interface RollingResult {
+  range: RollingRange;
+  windowDays: number;
+  points: RollingPoint[];
+  latestAverageKwh: number | null;
+  changePercent: number | null;
+  /** Appliances whose records begin part-way through, stepping the total up. */
+  additions: { id: string; name: string; from: number }[];
+  currency: string;
+  electricityPricePerKwh: number;
+}
+
 export interface Settings {
   electricityPricePerKwh: number;
   currency: string;

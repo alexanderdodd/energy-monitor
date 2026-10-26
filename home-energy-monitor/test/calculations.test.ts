@@ -7,6 +7,7 @@ import {
   downsample,
   forecastFromDailyTotals,
   parseNumericState,
+  rollingAverage,
   startOfLocalDayBefore,
   toCanonicalUnit,
   unitScale,
@@ -367,5 +368,61 @@ describe("unit scaling of recorded history", () => {
   it("scales a daily meter reporting Wh", () => {
     const result = holdLevel([{ t: 0, s: "1430" }], 0, 60_000, 60_000, unitScale("Wh", "energy"));
     expect(result[0]!.v).toBeCloseTo(1.43, 6);
+  });
+});
+
+describe("rollingAverage", () => {
+  const now = new Date(2026, 9, 26, 15, 0);
+  const day = (offset: number) => startOfLocalDayBefore(now, offset).getTime();
+  /** One point per day, `days` back from yesterday, valued by `value(offset)`. */
+  const series = (days: number, value: (offset: number) => number | null) =>
+    Array.from({ length: days }, (_, i) => ({ t: day(days - i), v: value(days - i) }));
+
+  it("averages the trailing window, seeded from before the range", () => {
+    const points = rollingAverage(series(20, () => 2), 7, startOfLocalDayBefore(now, 5), now);
+    // The first day shown already has a full week behind it.
+    expect(points.map((point) => point.t)).toEqual([5, 4, 3, 2, 1].map(day));
+    expect(points.every((point) => point.averageKwh === 2)).toBe(true);
+  });
+
+  it("leaves today out, since a day in progress always reads low", () => {
+    const daily = [...series(10, () => 2), { t: day(0), v: 0.3 }];
+    const points = rollingAverage(daily, 7, startOfLocalDayBefore(now, 3), now);
+    expect(points.at(-1)?.t).toBe(day(1));
+    expect(points.at(-1)?.averageKwh).toBe(2);
+  });
+
+  it("follows a falling level", () => {
+    // 4 kWh a day until a week ago, 2 kWh since.
+    const points = rollingAverage(
+      series(21, (offset) => (offset > 7 ? 4 : 2)),
+      7,
+      startOfLocalDayBefore(now, 14),
+      now,
+    );
+    expect(points[0]?.averageKwh).toBe(4);
+    expect(points.at(-1)?.averageKwh).toBe(2);
+  });
+
+  it("gives no average while any day in the window is unrecorded", () => {
+    // A missing day is unknown, not zero, and averaging over fewer days
+    // would quietly change what each point means.
+    const points = rollingAverage(
+      series(14, (offset) => (offset === 4 ? null : 2)),
+      7,
+      startOfLocalDayBefore(now, 7),
+      now,
+    );
+    const byDay = new Map(points.map((point) => [point.t, point]));
+    expect(byDay.get(day(4))?.dayKwh).toBeNull();
+    expect(byDay.get(day(5))?.averageKwh).toBe(2);
+    for (const offset of [4, 3, 2, 1]) expect(byDay.get(day(offset))?.averageKwh).toBeNull();
+  });
+
+  it("returns days without averages on a new install", () => {
+    const points = rollingAverage(series(3, () => 1.5), 7, startOfLocalDayBefore(now, 30), now);
+    expect(points).toHaveLength(30);
+    expect(points.filter((point) => point.dayKwh !== null)).toHaveLength(3);
+    expect(points.every((point) => point.averageKwh === null)).toBe(true);
   });
 });

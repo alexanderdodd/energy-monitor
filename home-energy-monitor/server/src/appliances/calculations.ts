@@ -518,3 +518,64 @@ export function startOfLocalDayBefore(date: Date, days: number): Date {
   start.setDate(start.getDate() - days);
   return start;
 }
+
+export interface RollingPoint {
+  /** Local midnight at the start of the day. */
+  t: number;
+  /** That day's own consumption; null where nothing was recorded. */
+  dayKwh: number | null;
+  /** Mean of the `windowDays` days ending with this one; null unless all were recorded. */
+  averageKwh: number | null;
+}
+
+/**
+ * Daily totals with a trailing average, for seeing a direction through the
+ * day-to-day noise.
+ *
+ * Covers whole days from `from` up to yesterday; today is still in progress
+ * and would always drag the line down. An average is only given where every
+ * day in its window was recorded. Averaging over just the days that happen to
+ * exist would quietly shrink the window, and a seven-day average is seven
+ * days precisely so that weekends weigh the same in every point.
+ */
+export function rollingAverage(
+  daily: ChartPoint[],
+  windowDays: number,
+  from: Date,
+  now = new Date(),
+): RollingPoint[] {
+  const byDay = new Map<number, number>();
+  for (const point of daily) {
+    if (point.v !== null) byDay.set(startOfLocalDay(new Date(point.t)).getTime(), point.v);
+  }
+
+  const todayStart = startOfLocalDay(now).getTime();
+  const days: number[] = [];
+  // Step with setDate rather than adding 24 hours, which drifts an hour
+  // across a daylight-saving change.
+  for (const day = startOfLocalDay(from); day.getTime() < todayStart; day.setDate(day.getDate() + 1)) {
+    days.push(day.getTime());
+  }
+
+  const window: (number | null)[] = [];
+  // Seed the window with the days just before the range, so the average
+  // starts at the first day shown rather than `windowDays` in.
+  const lead = startOfLocalDayBefore(from, windowDays - 1);
+  for (const day = lead; day.getTime() < (days[0] ?? 0); day.setDate(day.getDate() + 1)) {
+    window.push(byDay.get(day.getTime()) ?? null);
+  }
+
+  return days.map((t) => {
+    const dayKwh = byDay.get(t) ?? null;
+    window.push(dayKwh);
+    if (window.length > windowDays) window.shift();
+
+    const complete =
+      window.length === windowDays && window.every((value) => value !== null);
+    const averageKwh = complete
+      ? roundTo((window as number[]).reduce((a, b) => a + b, 0) / windowDays, 4)
+      : null;
+
+    return { t, dayKwh: dayKwh === null ? null : roundTo(dayKwh, 4), averageKwh };
+  });
+}

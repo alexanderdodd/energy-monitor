@@ -19,6 +19,9 @@ vi.mock("../web/src/components/ComparisonChart.tsx", () => ({
     return <div data-testid="comparison-chart" data-view={view} data-series={series.length} />;
   },
 }));
+vi.mock("../web/src/components/RollingChart.tsx", () => ({
+  default: ({ label }: { label: string }) => <div data-testid="rolling-chart" aria-label={label} />,
+}));
 import { StubEventSource } from "./setup.ts";
 
 const SUMMARY = {
@@ -164,6 +167,20 @@ const COMPARE = {
   currency: "EUR",
 };
 
+const ROLLING = {
+  range: "90d",
+  windowDays: 7,
+  points: [
+    { t: 1789900000000, dayKwh: 4.4, averageKwh: 4.1 },
+    { t: 1789986400000, dayKwh: 3.2, averageKwh: 3.65 },
+  ],
+  latestAverageKwh: 3.65,
+  changePercent: -11,
+  additions: [{ id: "device:dryer", name: "Dryer", from: 1789986400000 }],
+  currency: "EUR",
+  electricityPricePerKwh: 0.3,
+};
+
 const TREND = {
   scope: "appliances",
   period: "day",
@@ -241,6 +258,7 @@ beforeEach(() => {
     if (url.includes("/api/compare")) return respond(COMPARE);
     if (url.includes("/api/trend")) return respond(TREND);
     if (url.includes("/cumulative")) return respond(CUMULATIVE);
+    if (url.includes("/rolling")) return respond(ROLLING);
     if (url.includes("/api/summary")) return respond(SUMMARY);
     if (url.includes("/api/settings")) return respond(SETTINGS);
     if (url.includes("/api/discovery")) return respond(DISCOVERY);
@@ -541,6 +559,43 @@ describe("Compare", () => {
     expect(within(card).getByTestId("comparison-chart")).toHaveAttribute("data-view", "share");
     // The data is the same; only the drawing changes.
     expect(requests.length).toBe(before);
+  });
+});
+
+describe("Rolling average", () => {
+  function rollingCard(): HTMLElement {
+    const heading = screen.getByRole("heading", { name: "Rolling average" });
+    return heading.closest(".chart-card") as HTMLElement;
+  }
+
+  it("shows the latest average and which way it is moving", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Rolling average" });
+    const card = rollingCard();
+
+    await within(card).findByTestId("rolling-chart");
+    const legend = within(card).getByRole("list");
+    expect(within(legend).getByText("7-day average")).toBeInTheDocument();
+    expect(within(legend).getByText("3.65 kWh")).toBeInTheDocument();
+    // Falling use is the good direction.
+    expect(within(legend).getByText(/▼ 11%/)).toHaveClass("down");
+    // The step where a plug was added must not read as rising use.
+    expect(within(card).getByText(/Dryer is measured from/)).toBeInTheDocument();
+  });
+
+  it("refetches for a longer range", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "Rolling average" });
+    const card = rollingCard();
+    await within(card).findByTestId("rolling-chart");
+
+    await user.click(within(card).getByRole("button", { name: "1y" }));
+    await waitFor(() =>
+      expect(requests.some((request) => request.url.includes("api/summary/rolling?range=1y"))).toBe(
+        true,
+      ),
+    );
   });
 });
 

@@ -828,6 +828,43 @@ describe("GET /api/compare", () => {
   });
 });
 
+describe("GET /api/summary/rolling", () => {
+  it("gives each whole day with a trailing weekly average", async () => {
+    await configureFridge(current);
+    const body = (
+      await current.app.inject({ url: "/api/summary/rolling?range=30d" })
+    ).json() as {
+      windowDays: number;
+      points: { t: number; dayKwh: number | null; averageKwh: number | null }[];
+      latestAverageKwh: number | null;
+      changePercent: number | null;
+      additions: unknown[];
+    };
+
+    expect(body.windowDays).toBe(7);
+    expect(body.points).toHaveLength(30);
+    // Today is part-finished and stays out. Yesterday by the calendar, not
+    // 24 hours back, which is wrong across a daylight-saving change.
+    const yesterday = new Date(todayStart);
+    yesterday.setDate(yesterday.getDate() - 1);
+    expect(body.points.at(-1)?.t).toBe(yesterday.getTime());
+    const averages = body.points
+      .map((point) => point.averageKwh)
+      .filter((value): value is number => value !== null);
+    expect(averages.length).toBeGreaterThan(20);
+    expect(averages.every((value) => Math.abs(value - PER_DAY) < 0.001)).toBe(true);
+    expect(body.latestAverageKwh).toBe(PER_DAY);
+    expect(body.changePercent).toBe(0);
+    // The dryer has no records at all, which is not the same as being added later.
+    expect(body.additions).toEqual([]);
+  });
+
+  it("rejects an unknown range", async () => {
+    const response = await current.app.inject({ url: "/api/summary/rolling?range=5y" });
+    expect(response.statusCode).toBe(400);
+  });
+});
+
 describe("GET /api/trend", () => {
   it("reports each period's own consumption, not a running total", async () => {
     await configureFridge(current);

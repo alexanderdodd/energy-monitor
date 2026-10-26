@@ -19,6 +19,7 @@ import {
   forecastFromDailyTotals,
   parseNumericState,
   roundTo,
+  rollingAverage,
   runningTotal,
   startOfLocalDay,
   startOfLocalDayBefore,
@@ -31,6 +32,7 @@ import {
   type ChartPoint,
   type Forecast,
   type MeasurementKind,
+  type RollingPoint,
 } from "./calculations.ts";
 import type {
   Appliance,
@@ -230,6 +232,43 @@ export interface TrendResult {
   electricityPricePerKwh: number;
 }
 
+/** How far back the rolling-average chart reaches. */
+export type RollingRange = "30d" | "90d" | "1y";
+
+const ROLLING_RANGE_DAYS: Record<RollingRange, number> = { "30d": 30, "90d": 90, "1y": 365 };
+
+export function isRollingRange(value: string): value is RollingRange {
+  return value in ROLLING_RANGE_DAYS;
+}
+
+/** Fixed at a week, so every point weighs weekdays and weekends alike. */
+const ROLLING_WINDOW_DAYS = 7;
+
+/**
+ * Past days do not change, so the longer series behind the rolling chart are
+ * kept for longer than the summary's. A year of daily statistics per appliance
+ * is not something to re-request every couple of minutes from a Pi.
+ */
+const ROLLING_CACHE_TTL_MS = 10 * 60_000;
+
+export interface RollingResult {
+  range: RollingRange;
+  windowDays: number;
+  points: RollingPoint[];
+  /** The most recent average, i.e. the last `windowDays` complete days. */
+  latestAverageKwh: number | null;
+  /** That average against the one a window earlier; null until both exist. */
+  changePercent: number | null;
+  /**
+   * Appliances whose records begin after the household's do. The total steps
+   * up where each one starts being measured, which is more being metered,
+   * not more being used, and the UI has to say so.
+   */
+  additions: { id: string; name: string; from: number }[];
+  currency: string;
+  electricityPricePerKwh: number;
+}
+
 export interface ApplianceDetail extends ApplianceReading {
   entities: Appliance["entities"];
   energyWeekKwh: number | null;
@@ -251,6 +290,7 @@ export class ApplianceService {
   readonly #source: HaSource;
   readonly #store: ConfigStore;
   readonly #energyCache = new Map<string, CachedEnergy>();
+  readonly #rollingCache = new Map<string, { fetchedAt: number; points: ChartPoint[] }>();
 
   constructor(source: HaSource, store: ConfigStore) {
     this.#source = source;
@@ -260,6 +300,7 @@ export class ApplianceService {
   /** Drop cached statistics, e.g. after the appliance mapping changed. */
   invalidate(): void {
     this.#energyCache.clear();
+    this.#rollingCache.clear();
   }
 
   /** Every entity id the configured appliances care about. */
@@ -997,6 +1038,87 @@ export class ApplianceService {
       currency: config.settings.currency,
       electricityPricePerKwh: config.settings.electricityPricePerKwh,
     };
+  }
+
+  /**
+   * Household daily totals with a trailing average, for answering "is our
+   * use going down" through the day-to-day noise.
+   *
+   * Fetched separately from the summary's 30-day series because it reaches
+   * further back, and cached for longer because past days do not change.
+   */
+  async rolling(range: RollingRange = "90d", now = new Date()): Promise<RollingResult> {
+    const config = this.#store.get();
+    const appliances = this.#store.enabledAppliances();
+    const from = startOfLocalDayBefore(now, ROLLING_RANGE_DAYS[range]);
+    // Reach back a window further, so the first day shown already has a
+    // full week behind its average.
+    const fetchFrom = startOfLocalDayBefore(from, ROLLING_WINDOW_DAYS - 1);
+
+    const perAppliance: ChartPoint[][] = [];
+    for (const appliance of appliances) {
+      perAppliance.push(await this.#dailyEnergySince(appliance, fetchFrom, now));
+    }
+
+    const points = rollingAverage(sumSeriesByBucket(perAppliance), ROLLING_WINDOW_DAYS, from, now);
+
+    const averaged = points.filter((point) => point.averageKwh !== null);
+    const latest = averaged.at(-1) ?? null;
+    const weekEarlier =
+      latest === null
+        ? null
+        : (points.find(
+            (point) =>
+              point.t === startOfLocalDayBefore(new Date(latest.t), ROLLING_WINDOW_DAYS).getTime(),
+          ) ?? null);
+    const changePercent =
+      latest?.averageKwh != null && weekEarlier?.averageKwh != null && weekEarlier.averageKwh > 0
+        ? roundTo(((latest.averageKwh - weekEarlier.averageKwh) / weekEarlier.averageKwh) * 100, 1)
+        : null;
+
+    // Where each appliance's record starts, to explain steps in the total.
+    const starts = appliances
+      .map((appliance, index) => ({
+        id: appliance.id,
+        name: appliance.name,
+        from: perAppliance[index]?.find((point) => point.v !== null && point.t >= from.getTime())?.t,
+      }))
+      .filter((item): item is { id: string; name: string; from: number } => item.from !== undefined);
+    const earliest = Math.min(...starts.map((item) => item.from));
+    const additions = starts.filter((item) => item.from > earliest);
+
+    return {
+      range,
+      windowDays: ROLLING_WINDOW_DAYS,
+      points,
+      latestAverageKwh: latest?.averageKwh ?? null,
+      changePercent,
+      additions,
+      currency: config.settings.currency,
+      electricityPricePerKwh: config.settings.electricityPricePerKwh,
+    };
+  }
+
+  async #dailyEnergySince(appliance: Appliance, start: Date, now: Date): Promise<ChartPoint[]> {
+    const key = `${appliance.id}:${start.getTime()}`;
+    const cached = this.#rollingCache.get(key);
+    if (cached && now.getTime() - cached.fetchedAt < ROLLING_CACHE_TTL_MS) {
+      return cached.points;
+    }
+
+    let points: ChartPoint[] = [];
+    try {
+      points = await buildDailyEnergy(this.#source, appliance, start, now);
+    } catch (error) {
+      log.debug(`Energy statistics unavailable for ${appliance.id}: ${(error as Error).message}`);
+    }
+
+    // Keys carry the start day, so yesterday's entries never hit again.
+    for (const [stale, entry] of this.#rollingCache) {
+      if (now.getTime() - entry.fetchedAt >= ROLLING_CACHE_TTL_MS) this.#rollingCache.delete(stale);
+    }
+    this.#rollingCache.set(key, { fetchedAt: now.getTime(), points });
+    return points;
   }
 
   async getHistory(id: string, range: HistoryRange, now = new Date()): Promise<HistoryResult | null> {
