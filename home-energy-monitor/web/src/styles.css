@@ -283,6 +283,11 @@ button {
   font-weight: 550;
 }
 
+.range-tabs button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .range-tabs button[aria-pressed="true"] {
   background: var(--accent-soft);
   border-color: transparent;
@@ -874,3 +879,69 @@ a:focus-visible {
 
 .series-legend .swatch.rolling-average { background: var(--accent); }
 .series-legend .swatch.rolling-day { background: var(--text-faint); opacity: 0.35; }
+
+/* Day breakdown: a donut or ranked bars per panel, with the exact figures
+   listed beneath. Two panels sit side by side when there is room. */
+.breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px 28px;
+}
+
+.breakdown-panel h3 {
+  margin: 4px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.breakdown-chart { height: 260px; }
+
+.breakdown .chart-total { margin-left: 10px; font-size: 14px; color: var(--text-muted); }
+
+.day-input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  color-scheme: light dark;
+}
+
+.breakdown-table {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.breakdown-table li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto 40px 64px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.breakdown-table li:last-child { border-bottom: none; }
+
+.breakdown-table .swatch { width: 10px; height: 10px; border-radius: 3px; }
+
+.breakdown-table .name {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breakdown-table .value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.breakdown-table .share,
+.breakdown-table .cost {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

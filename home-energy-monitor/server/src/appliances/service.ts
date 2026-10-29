@@ -269,6 +269,46 @@ export interface RollingResult {
   electricityPricePerKwh: number;
 }
 
+export interface BreakdownItem {
+  id: string;
+  name: string;
+  /** That day's consumption; null where nothing was recorded, never zero. */
+  kwh: number | null;
+  cost: number | null;
+}
+
+export interface BreakdownResult {
+  /** Local midnight at the start of the day. */
+  day: number;
+  /** True while the day is still underway, so the UI can say "so far". */
+  inProgress: boolean;
+  /** The earliest day anything was recorded, bounding the day picker. */
+  earliestDay: number | null;
+  appliances: BreakdownItem[];
+  /**
+   * Null when scoped to one category. Includes "Not in a category" for
+   * appliances outside every category, so the parts cover the house.
+   */
+  categories: BreakdownItem[] | null;
+  /** Some appliance sits in two categories, so category shares overlap. */
+  categoriesOverlap: boolean;
+  totalKwh: number | null;
+  currency: string;
+}
+
+/** `YYYY-MM-DD`, read as a local calendar day. */
+export function parseLocalDay(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(year, month - 1, day);
+  // Reject 2026-02-31 and the like rather than letting Date roll it over.
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+  return date;
+}
+
 export interface ApplianceDetail extends ApplianceReading {
   entities: Appliance["entities"];
   energyWeekKwh: number | null;
@@ -1037,6 +1077,85 @@ export class ApplianceService {
       series,
       currency: config.settings.currency,
       electricityPricePerKwh: config.settings.electricityPricePerKwh,
+    };
+  }
+
+  /**
+   * What each appliance, and each category, used on one day.
+   *
+   * Read from the same per-appliance daily series as the summary, so today's
+   * figures here are the ones printed on the cards. Within the 30-day window
+   * that series covers; nothing extra is asked of Home Assistant.
+   */
+  async breakdown(
+    day: Date,
+    categoryId: string | null = null,
+    now = new Date(),
+  ): Promise<BreakdownResult | null> {
+    const config = this.#store.get();
+    const price = config.settings.electricityPricePerKwh;
+    const category = categoryId === null ? null : this.#store.getCategory(categoryId);
+    if (categoryId !== null && !category) return null;
+
+    const dayStart = startOfLocalDay(day).getTime();
+    const appliances = this.#store
+      .enabledAppliances()
+      .filter((appliance) => !category || category.applianceIds.includes(appliance.id));
+
+    const kwhById = new Map<string, number | null>();
+    let earliestDay: number | null = null;
+    for (const appliance of appliances) {
+      const { points } = await this.#dailyEnergy(appliance, now);
+      const match = points.find((point) => startOfLocalDay(new Date(point.t)).getTime() === dayStart);
+      kwhById.set(appliance.id, match?.v ?? null);
+      const first = points.find((point) => point.v !== null);
+      if (first) {
+        const firstDay = startOfLocalDay(new Date(first.t)).getTime();
+        earliestDay = earliestDay === null ? firstDay : Math.min(earliestDay, firstDay);
+      }
+    }
+
+    const item = (id: string, name: string, kwh: number | null): BreakdownItem => ({
+      id,
+      name,
+      kwh: kwh === null ? null : roundTo(kwh, 3),
+      cost: costOf(kwh, price),
+    });
+    /** A sum over whatever was recorded; null only when nothing was. */
+    const sumOf = (ids: string[]) =>
+      sumValues(ids.map((id) => kwhById.get(id) ?? null));
+
+    // Configured order, not ranked: the UI ranks for display, and colours
+    // follow configured order so an appliance keeps its colour day to day.
+    const applianceItems = appliances.map((appliance) =>
+      item(appliance.id, appliance.name, kwhById.get(appliance.id) ?? null),
+    );
+
+    let categoryItems: BreakdownItem[] | null = null;
+    if (!category) {
+      const enabledIds = new Set(appliances.map((appliance) => appliance.id));
+      const members = (c: Category) => c.applianceIds.filter((id) => enabledIds.has(id));
+      categoryItems = config.categories.map((c) => item(c.id, c.name, sumOf(members(c))));
+      // Without this the category shares would only cover whatever happens
+      // to be categorised, and read as the whole house.
+      const categorised = new Set(config.categories.flatMap(members));
+      const loose = appliances.filter((appliance) => !categorised.has(appliance.id));
+      if (config.categories.length > 0 && loose.length > 0) {
+        categoryItems.push(item("__uncategorised", "Not in a category", sumOf(loose.map((a) => a.id))));
+      }
+    }
+
+    const totalKwh = sumOf(appliances.map((appliance) => appliance.id));
+
+    return {
+      day: dayStart,
+      inProgress: dayStart === startOfLocalDay(now).getTime(),
+      earliestDay,
+      appliances: applianceItems,
+      categories: categoryItems,
+      categoriesOverlap: !category && hasOverlap(config.categories),
+      totalKwh,
+      currency: config.settings.currency,
     };
   }
 

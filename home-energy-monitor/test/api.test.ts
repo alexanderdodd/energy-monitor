@@ -828,6 +828,91 @@ describe("GET /api/compare", () => {
   });
 });
 
+describe("GET /api/breakdown", () => {
+  /** Yesterday by the calendar, as YYYY-MM-DD. */
+  function yesterdayKey(): string {
+    const date = new Date(todayStart);
+    date.setDate(date.getDate() - 1);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  }
+
+  type Breakdown = {
+    day: number;
+    inProgress: boolean;
+    appliances: { id: string; name: string; kwh: number | null; cost: number | null }[];
+    categories: { id: string; name: string; kwh: number | null }[] | null;
+    totalKwh: number | null;
+  };
+
+  it("matches today's figures on the cards", async () => {
+    await configureFridge(current);
+    const breakdown = (await current.app.inject({ url: "/api/breakdown" })).json() as Breakdown;
+    const summary = (await current.app.inject({ url: "/api/summary" })).json() as {
+      appliances: { name: string; energyTodayKwh: number | null }[];
+    };
+
+    expect(breakdown.inProgress).toBe(true);
+    const fridge = breakdown.appliances.find((item) => item.name === "Fridge")!;
+    const card = summary.appliances.find((item) => item.name === "Fridge")!;
+    // One figure, one source: the breakdown must agree with the card.
+    expect(fridge.kwh).toBe(card.energyTodayKwh);
+  });
+
+  it("reads a past day, and leaves an unrecorded appliance unknown rather than zero", async () => {
+    await configureFridge(current);
+    const body = (
+      await current.app.inject({ url: `/api/breakdown?date=${yesterdayKey()}` })
+    ).json() as Breakdown;
+
+    expect(body.inProgress).toBe(false);
+    expect(body.appliances.find((item) => item.name === "Fridge")?.kwh).toBe(PER_DAY);
+    const dryer = body.appliances.find((item) => item.name === "Dryer")!;
+    expect(dryer.kwh).toBeNull();
+    expect(dryer.cost).toBeNull();
+    expect(body.totalKwh).toBe(PER_DAY);
+  });
+
+  it("splits by category, counting uncategorised appliances", async () => {
+    await configureFridge(current);
+    await current.app.inject({
+      method: "PUT",
+      url: "/api/categories",
+      payload: { categories: [{ name: "Cooling", applianceIds: ["device:dev-fridge"] }] },
+    });
+
+    const body = (
+      await current.app.inject({ url: `/api/breakdown?date=${yesterdayKey()}` })
+    ).json() as Breakdown;
+    expect(body.categories).toEqual([
+      expect.objectContaining({ name: "Cooling", kwh: PER_DAY }),
+      // The dryer belongs nowhere and recorded nothing: unknown, not zero.
+      expect.objectContaining({ name: "Not in a category", kwh: null }),
+    ]);
+  });
+
+  it("limits to one category's appliances on the category page", async () => {
+    await configureFridge(current);
+    await current.app.inject({
+      method: "PUT",
+      url: "/api/categories",
+      payload: { categories: [{ name: "Cooling", applianceIds: ["device:dev-fridge"] }] },
+    });
+
+    const body = (
+      await current.app.inject({ url: "/api/breakdown?category=cooling" })
+    ).json() as Breakdown;
+    expect(body.appliances.map((item) => item.name)).toEqual(["Fridge"]);
+    expect(body.categories).toBeNull();
+  });
+
+  it("rejects a malformed date and an unknown category", async () => {
+    expect((await current.app.inject({ url: "/api/breakdown?date=2026-02-31" })).statusCode).toBe(400);
+    expect((await current.app.inject({ url: "/api/breakdown?date=yesterday" })).statusCode).toBe(400);
+    expect((await current.app.inject({ url: "/api/breakdown?category=nope" })).statusCode).toBe(404);
+  });
+});
+
 describe("GET /api/summary/rolling", () => {
   it("gives each whole day with a trailing weekly average", async () => {
     await configureFridge(current);

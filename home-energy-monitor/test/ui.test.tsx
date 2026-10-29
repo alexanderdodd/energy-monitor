@@ -34,6 +34,11 @@ vi.mock("../web/src/components/ComparisonChart.tsx", () => ({
     );
   },
 }));
+vi.mock("../web/src/components/BreakdownChart.tsx", () => ({
+  default: ({ view, slices }: { view: string; slices: { name: string }[] }) => (
+    <div data-testid="breakdown-chart" data-view={view} data-slices={slices.length} />
+  ),
+}));
 vi.mock("../web/src/components/RollingChart.tsx", () => ({
   default: ({ label }: { label: string }) => <div data-testid="rolling-chart" aria-label={label} />,
 }));
@@ -182,6 +187,21 @@ const COMPARE = {
   currency: "EUR",
 };
 
+const BREAKDOWN = {
+  day: 1789900000000,
+  inProgress: true,
+  earliestDay: 1789000000000,
+  appliances: [
+    { id: "device:fridge", name: "Fridge", kwh: 0.62, cost: 0.19 },
+    { id: "device:air-fryer", name: "Air Fryer", kwh: 0.9, cost: 0.27 },
+    { id: "device:dryer", name: "Dryer", kwh: null, cost: null },
+  ],
+  categories: [{ id: "washing", name: "Washing", kwh: 0.62, cost: 0.19 }],
+  categoriesOverlap: true,
+  totalKwh: 1.52,
+  currency: "EUR",
+};
+
 const ROLLING = {
   range: "90d",
   windowDays: 7,
@@ -249,6 +269,13 @@ function cardIn(grid: ".appliance-grid" | ".category-grid", name: RegExp): HTMLE
 }
 
 const applianceCard = (name: RegExp) => cardIn(".appliance-grid", name);
+
+/**
+ * The Washing category card, once rendered. "Washing" also appears in the
+ * day breakdown's category table, so an unscoped findByText passes or throws
+ * depending on which request lands first.
+ */
+const washingCard = () => waitFor(() => categoryCard(/Washing/));
 const categoryCard = (name: RegExp) => cardIn(".category-grid", name);
 
 function respond(body: unknown) {
@@ -274,6 +301,7 @@ beforeEach(() => {
     if (url.includes("/api/trend")) return respond(TREND);
     if (url.includes("/cumulative")) return respond(CUMULATIVE);
     if (url.includes("/rolling")) return respond(ROLLING);
+    if (url.includes("/api/breakdown")) return respond(BREAKDOWN);
     if (url.includes("/api/summary")) return respond(SUMMARY);
     if (url.includes("/api/settings")) return respond(SETTINGS);
     if (url.includes("/api/discovery")) return respond(DISCOVERY);
@@ -365,7 +393,7 @@ describe("Categories", () => {
   it("shows a card per category with its cost and trend", async () => {
     render(<App />);
 
-    expect(await screen.findByText("Washing")).toBeInTheDocument();
+    expect(await washingCard()).toBeInTheDocument();
     expect(screen.getByText("2.31 kWh today")).toBeInTheDocument();
     expect(screen.getByText("€0.69")).toBeInTheDocument();
     expect(screen.getByText("Dryer, Fridge")).toBeInTheDocument();
@@ -375,7 +403,7 @@ describe("Categories", () => {
 
   it("shows live usage on the card, summed from the stream", async () => {
     render(<App />);
-    await screen.findByText("Washing");
+    await washingCard();
 
     StubEventSource.instances[0]!.emit("state", {
       generatedAt: "2026-09-26T12:00:05.000Z",
@@ -395,7 +423,7 @@ describe("Categories", () => {
 
   it("says plainly that overlapping categories do not sum to the total", async () => {
     render(<App />);
-    await screen.findByText("Washing");
+    await washingCard();
     expect(
       screen.getByText(/belong to more than one category, so these figures overlap/),
     ).toBeInTheDocument();
@@ -405,7 +433,7 @@ describe("Categories", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByText("Washing"));
+    await user.click(await washingCard());
 
     expect(await screen.findByRole("heading", { level: 1, name: "Washing" })).toBeInTheDocument();
     expect(screen.getByText("Category")).toBeInTheDocument();
@@ -478,7 +506,7 @@ describe("Energy today curve", () => {
   it("shows a curve on the category page too", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByText("Washing"));
+    await user.click(await washingCard());
 
     await screen.findByRole("heading", { level: 1, name: "Washing" });
     await waitFor(() => {
@@ -574,6 +602,68 @@ describe("Compare", () => {
     expect(within(card).getByTestId("comparison-chart")).toHaveAttribute("data-view", "share");
     // The data is the same; only the drawing changes.
     expect(requests.length).toBe(before);
+  });
+});
+
+describe("Day breakdown", () => {
+  function breakdownCard(): HTMLElement {
+    const panel = screen.getByRole("region", { name: "By appliance" });
+    return panel.closest(".chart-card") as HTMLElement;
+  }
+
+  it("lists what each appliance used, largest first, by appliance and category", async () => {
+    render(<App />);
+    const panel = await screen.findByRole("region", { name: "By appliance" });
+    await within(panel).findByText("0.90 kWh");
+
+    const rows = within(panel).getAllByRole("listitem");
+    expect(rows.map((row) => row.querySelector(".name")?.textContent)).toEqual([
+      "Air Fryer",
+      "Fridge",
+      "Dryer",
+    ]);
+    // Unrecorded is not zero.
+    expect(within(rows[2]!).getByText("No record")).toBeInTheDocument();
+    expect(within(rows[0]!).getByText("59%")).toBeInTheDocument();
+
+    const categories = screen.getByRole("region", { name: "By category" });
+    expect(within(categories).getByText(/count towards each/)).toBeInTheDocument();
+  });
+
+  it("asks for yesterday, and swaps the donut for bars", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const panel = await screen.findByRole("region", { name: "By appliance" });
+    await within(panel).findByText("0.90 kWh");
+    const card = breakdownCard();
+
+    expect(within(panel).getByTestId("breakdown-chart")).toHaveAttribute("data-view", "share");
+    await user.click(within(card).getByRole("button", { name: "Amounts" }));
+    expect(within(panel).getByTestId("breakdown-chart")).toHaveAttribute("data-view", "bars");
+
+    await user.click(within(card).getByRole("button", { name: "Yesterday" }));
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const key = `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}`;
+    await waitFor(() =>
+      expect(requests.some((request) => request.url.includes(`api/breakdown?date=${key}`))).toBe(
+        true,
+      ),
+    );
+    // Today is the latest day there is.
+    expect(within(card).getByRole("button", { name: "Next day" })).not.toBeDisabled();
+  });
+
+  it("breaks a category down by its own appliances", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await washingCard());
+    await screen.findByRole("heading", { level: 1, name: "Washing" });
+
+    await waitFor(() =>
+      expect(requests.some((request) => request.url.includes("&category=washing"))).toBe(true),
+    );
   });
 });
 

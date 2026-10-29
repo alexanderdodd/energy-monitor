@@ -260,6 +260,27 @@ export interface RollingResult {
   electricityPricePerKwh: number;
 }
 
+export interface BreakdownItem {
+  id: string;
+  name: string;
+  /** That day's consumption; null where nothing was recorded, never zero. */
+  kwh: number | null;
+  cost: number | null;
+}
+
+export interface BreakdownResult {
+  day: number;
+  inProgress: boolean;
+  earliestDay: number | null;
+  /** In configured order; the UI ranks them. */
+  appliances: BreakdownItem[];
+  /** Null when scoped to one category. */
+  categories: BreakdownItem[] | null;
+  categoriesOverlap: boolean;
+  totalKwh: number | null;
+  currency: string;
+}
+
 export interface Settings {
   electricityPricePerKwh: number;
   currency: string;

@@ -4,6 +4,7 @@ import { ComparisonCard } from "../components/ComparisonCard.tsx";
 import { TrendCard } from "../components/TrendCard.tsx";
 import { ConnectionBanner } from "../components/ConnectionBanner.tsx";
 import { CumulativeCard } from "../components/CumulativeCard.tsx";
+import { DayBreakdownCard } from "../components/DayBreakdownCard.tsx";
 import { RollingCard } from "../components/RollingCard.tsx";
 import { Stat } from "../components/Stat.tsx";
 import { formatAverageBasis, formatEnergy, formatMoney, formatPower } from "../lib/format.ts";
@@ -131,6 +132,11 @@ export function Overview({ live, streaming }: Props) {
           />
         ))}
       </div>
+
+      {/* What used what, one day at a time, straight under the live cards
+          whose "today" figures it breaks down. */}
+      <h2 className="section-title">By day</h2>
+      <DayBreakdownCard />
 
       {/* Live state first, for an at-a-glance "what is on"; the charts that
           need reading sit below it. */}

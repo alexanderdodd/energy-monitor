@@ -2,6 +2,7 @@ import { lazy, useEffect } from "react";
 import { ChartBoundary } from "../components/ChartBoundary.tsx";
 import { ConnectionBanner } from "../components/ConnectionBanner.tsx";
 import { CumulativeCard } from "../components/CumulativeCard.tsx";
+import { DayBreakdownCard } from "../components/DayBreakdownCard.tsx";
 import { Stat } from "../components/Stat.tsx";
 import { TrendBadge } from "../components/TrendBadge.tsx";
 import { formatAverageBasis, formatEnergy, formatMoney, formatPower } from "../lib/format.ts";
@@ -112,6 +113,8 @@ export function CategoryDetailPage({ id, live, streaming, onTitle }: Props) {
           </p>
         )}
       </div>
+
+      <DayBreakdownCard categoryId={id} />
 
       <div className="card panel">
         <h2>Appliances in this category</h2>

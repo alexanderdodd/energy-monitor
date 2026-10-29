@@ -325,6 +325,32 @@ Day arithmetic goes through `setDate`, never `+ 86_400_000`: a test written
 the lazy way failed on the day after a daylight-saving change, and the mock
 had the same bug in its statistics (fixed).
 
+## The day breakdown
+
+"By day" on the overview, and the same card on a category page
+(`/api/breakdown?date=YYYY-MM-DD[&category=id]`), splits one day's use by
+appliance and by category.
+
+- **It reads the summary's per-appliance daily series**, so "Today so far"
+  matches the cards to the watt-hour and costs no extra Home Assistant
+  traffic. The price is that the picker only reaches the 30-day window that
+  series holds.
+- **Items come back in configured order**; the UI ranks them. Colour follows
+  configured order (through `foldByTotal`), so an appliance keeps its colour
+  from one day to the next.
+- **The donut folds to six; the bars never fold.** The bars are a single
+  colour - each is labelled with its name and value - which frees them from
+  the eight-slot palette, so all sixteen appliances get a bar.
+- **"Not in a category" is added to the category split**, otherwise the
+  category shares would cover only what happens to be categorised and read
+  as the whole house. Overlap is still possible and is captioned only when
+  it is real.
+- An appliance with no record that day says "No record", not 0.00 kWh.
+
+**Tests: "Washing" now appears twice on the overview** (category card and
+breakdown table), so an unscoped `findByText("Washing")` became a race.
+Use the `washingCard()` helper.
+
 ## Charts must not be rebuilt by unrelated renders
 
 `setOption(..., { notMerge: true })` replaces the chart wholesale and closes

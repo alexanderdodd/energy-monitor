@@ -7,6 +7,7 @@ import {
   isCompareScope,
   isCumulativeRange,
   isRollingRange,
+  parseLocalDay,
   isTrendPeriod,
   type ApplianceService,
   type CumulativeRange,
@@ -248,6 +249,22 @@ export function registerApiRoutes(app: FastifyInstance, deps: ApiDependencies): 
       return reply.code(503).send({ error: "Could not reach Home Assistant" });
     }
   });
+
+  app.get<{ Querystring: { date?: string; category?: string } }>(
+    "/api/breakdown",
+    async (request, reply) => {
+      const day = request.query.date ? parseLocalDay(request.query.date) : new Date();
+      if (!day) return reply.code(400).send({ error: "date must be YYYY-MM-DD" });
+      try {
+        const result = await service.breakdown(day, request.query.category ?? null);
+        if (!result) return reply.code(404).send({ error: "Unknown category" });
+        return result;
+      } catch (error) {
+        log.warning(`Could not build the day breakdown: ${(error as Error).message}`);
+        return reply.code(503).send({ error: "Could not reach Home Assistant" });
+      }
+    },
+  );
 
   app.get("/api/summary", async (_request, reply) => {
     try {
