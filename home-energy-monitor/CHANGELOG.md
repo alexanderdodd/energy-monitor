@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.17.0
+
+- New "By day" breakdown on the overview: what each appliance, and each
+  category, used on a day, as a donut or as ranked bars, with the exact kWh,
+  share and cost listed underneath. It opens on today; yesterday is one tap
+  away, and the arrows or the date picker reach any day in the last month.
+- A category's page has the same breakdown for its own appliances.
+- "Usage by period" now shows the last five days, weeks or months instead of
+  every one, so each bar is readable.
+- With more than eight appliances, the ninth onwards were drawn in the same
+  grey as "Other" in Compare and Usage by period. The largest seven now each
+  have their own colour, and the rest are grouped as "Other".
+
 ## 0.16.1
 
 - The app's log now timestamps every line, notes when the app exits and why,
