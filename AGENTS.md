@@ -367,9 +367,14 @@ picked by eye**: both light and dark pass the lightness band, chroma floor,
 adjacent-pair colour-vision separation and normal-vision floor against this
 app's surfaces. Rules that come with it:
 
-- **Assign hues in the fixed slot order, keyed to the entity's own index** -
-  never to its rank. Sorting by size or switching range must not repaint a
-  series.
+- **Assign hues in the fixed slot order, keyed to configured order** - never
+  to rank. Sorting by size must not repaint a series. With more than eight
+  entities (the owner has sixteen plugs), `foldByTotal` in `web/src/lib/fold.ts`
+  keeps the seven largest and gives each the slot of its position *among the
+  kept ones*. Keying to the index across all appliances put the ninth onwards
+  in the neutral grey reserved for "Other", so the dishwasher, the kettle and
+  "Other" were indistinguishable. Every chart with a series per appliance
+  folds through that helper.
 - **Never invent a ninth colour.** Past the eighth slot, fold into "Other".
   The donut caps lower still, at six, because part-to-whole is only readable
   at a glance with a handful of segments.

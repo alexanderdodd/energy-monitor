@@ -1,6 +1,7 @@
 import { lazy, memo, useMemo, useState } from "react";
 import { ChartBoundary } from "./ChartBoundary.tsx";
 import { formatEnergy, formatMoney } from "../lib/format.ts";
+import { foldByTotal, OTHER_COLOR_INDEX, sumPoints } from "../lib/fold.ts";
 import { colorFor, MAX_SERIES } from "../lib/palette.ts";
 import { useApiResource } from "../lib/useApi.ts";
 import type { CompareResult, CompareScope, CumulativeRange } from "../lib/types.ts";
@@ -50,59 +51,35 @@ function foldSeries(result: CompareResult, cap: number): Folded {
   // "nothing to show", never throw and take the dashboard with it.
   const source = Array.isArray(result.series) ? result.series : [];
   const buckets = Array.isArray(result.buckets) ? result.buckets : [];
-  const withIndex = source.map((item, index) => ({
-    ...item,
-    points: Array.isArray(item.points) ? item.points : [],
-    colorIndex: index,
+  const { kept, rest } = foldByTotal(
+    source.map((item) => ({ ...item, points: Array.isArray(item.points) ? item.points : [] })),
+    cap,
+  );
+
+  const series: ComparisonSeries[] = kept.map(({ id, name, points, totalKwh, colorIndex }) => ({
+    id,
+    name,
+    points,
+    totalKwh,
+    colorIndex,
   }));
-  if (withIndex.length <= cap) {
-    return {
-      series: withIndex.map(({ id, name, points, totalKwh, colorIndex }) => ({
-        id,
-        name,
-        points,
-        totalKwh,
-        colorIndex,
-      })),
-      costs: withIndex.map((item) => item.cost),
-      foldedCount: 0,
-    };
+  const costs = kept.map((item) => item.cost);
+
+  if (rest.length > 0) {
+    series.push({
+      id: "__other",
+      name: `Other (${rest.length})`,
+      points: sumPoints(
+        rest.map((item) => item.points),
+        buckets.length,
+      ),
+      totalKwh: rest.reduce((sum, item) => sum + (item.totalKwh ?? 0), 0),
+      colorIndex: OTHER_COLOR_INDEX,
+    });
+    costs.push(rest.reduce((sum, item) => sum + (item.cost ?? 0), 0));
   }
 
-  const ranked = [...withIndex].sort((a, b) => (b.totalKwh ?? 0) - (a.totalKwh ?? 0));
-  const kept = ranked.slice(0, cap - 1);
-  const rest = ranked.slice(cap - 1);
-
-  const points = buckets.map((_, bucket) => {
-    const values = rest
-      .map((item) => item.points[bucket])
-      .filter((value): value is number => value !== null && value !== undefined);
-    return values.length > 0 ? values.reduce((a, b) => a + b, 0) : null;
-  });
-
-  return {
-    series: [
-      ...kept.map(({ id, name, points: p, totalKwh, colorIndex }) => ({
-        id,
-        name,
-        points: p,
-        totalKwh,
-        colorIndex,
-      })),
-      {
-        id: "__other",
-        name: `Other (${rest.length})`,
-        points,
-        totalKwh: rest.reduce((sum, item) => sum + (item.totalKwh ?? 0), 0),
-        colorIndex: MAX_SERIES, // past the palette: the reserved neutral
-      },
-    ],
-    costs: [
-      ...kept.map((item) => item.cost),
-      rest.reduce((sum, item) => sum + (item.cost ?? 0), 0),
-    ],
-    foldedCount: rest.length,
-  };
+  return { series, costs, foldedCount: rest.length };
 }
 
 /**

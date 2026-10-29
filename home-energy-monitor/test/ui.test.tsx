@@ -14,9 +14,24 @@ vi.mock("../web/src/components/PowerChart.tsx", () => ({
 const chartRenders = vi.hoisted(() => ({ comparison: 0 }));
 
 vi.mock("../web/src/components/ComparisonChart.tsx", () => ({
-  default: ({ view, series }: { view: string; series: { name: string }[] }) => {
+  default: ({
+    view,
+    series,
+    buckets,
+  }: {
+    view: string;
+    series: { name: string }[];
+    buckets: number[];
+  }) => {
     chartRenders.comparison += 1;
-    return <div data-testid="comparison-chart" data-view={view} data-series={series.length} />;
+    return (
+      <div
+        data-testid="comparison-chart"
+        data-view={view}
+        data-series={series.length}
+        data-buckets={buckets.length}
+      />
+    );
   },
 }));
 vi.mock("../web/src/components/RollingChart.tsx", () => ({
@@ -619,6 +634,43 @@ describe("Usage by period", () => {
     // Falling use points down; rising points up.
     expect(within(legend).getByText(/▼ 22%/)).toBeInTheDocument();
     expect(within(legend).getByText(/▲ 20%/)).toBeInTheDocument();
+  });
+
+  it("draws only the last five periods, folding past eight series", async () => {
+    const buckets = Array.from({ length: 11 }, (_, index) => 1789000000000 + index * 86_400_000);
+    const many = {
+      ...TREND,
+      buckets,
+      inProgressFrom: buckets.at(-1),
+      total: { points: buckets.map(() => 10), changePercent: null },
+      series: Array.from({ length: 16 }, (_, index) => ({
+        id: `device:${index}`,
+        name: `Plug ${index}`,
+        points: buckets.map(() => index / 10),
+        changePercent: null,
+      })),
+    };
+    vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/trend")) return respond(many);
+      if (url.includes("/api/compare")) return respond(COMPARE);
+      if (url.includes("/cumulative")) return respond(CUMULATIVE);
+      if (url.includes("/rolling")) return respond(ROLLING);
+      if (url.includes("/api/summary")) return respond(SUMMARY);
+      return respond({});
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Usage by period" });
+    const card = trendCard();
+    const chart = await within(card).findByTestId("comparison-chart");
+
+    expect(chart).toHaveAttribute("data-buckets", "5");
+    // Seven of the largest, plus "Other": no ninth colour.
+    expect(chart).toHaveAttribute("data-series", "8");
+    expect(within(card).getByText("Other (9)")).toBeInTheDocument();
+    expect(within(card).getByText("Plug 15")).toBeInTheDocument();
+    expect(within(card).queryByText("Plug 0")).not.toBeInTheDocument();
   });
 
   it("defaults to grouped bars and can switch to lines", async () => {
